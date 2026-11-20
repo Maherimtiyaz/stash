@@ -1,0 +1,176 @@
+import json
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import Body, Depends, FastAPI, Form, Header, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+
+from . import pages
+from .access import Access, AccessError
+from .bot import Bot
+from .config import Settings
+from .db import Database, now
+from .instagram import DryRunMessenger, GraphMessenger, Messenger, parse_webhook, verify_signature
+from .worker import Worker
+
+log = logging.getLogger("stash")
+
+
+def create_app(settings: Settings | None = None, messenger: Messenger | None = None) -> FastAPI:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    s = settings or Settings.from_env()
+    db = Database(s.db_path)
+    access = Access(db, s.secret_key, s.link_code_minutes)
+    bot = Bot(db, access, s.public_base_url, s.ig_username)
+    if messenger is None:
+        messenger = DryRunMessenger() if s.dry_run else GraphMessenger(s.access_token, s.graph_version)
+    worker = Worker(db, messenger)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if s.worker_enabled:
+            worker.start()
+        log.info("Stash started (dry_run=%s)", s.dry_run)
+        yield
+        worker.stop()
+
+    app = FastAPI(title="Stash DM backend", lifespan=lifespan)
+    app.state.settings, app.state.db, app.state.access = s, db, access
+    app.state.bot, app.state.worker, app.state.messenger = bot, worker, messenger
+
+    # ------------------------------------------------------------------ Meta webhook
+    @app.get("/webhooks/instagram")
+    def verify_webhook(
+        mode: str = Query("", alias="hub.mode"),
+        token: str = Query("", alias="hub.verify_token"),
+        challenge: str = Query("", alias="hub.challenge"),
+    ):
+        """Meta calls this once when you register the webhook URL."""
+        if mode == "subscribe" and s.verify_token and token == s.verify_token:
+            return PlainTextResponse(challenge)
+        raise HTTPException(403, "verification failed")
+
+    @app.post("/webhooks/instagram")
+    async def receive_webhook(request: Request):
+        raw = await request.body()
+        if not verify_signature(raw, request.headers.get("x-hub-signature-256"), s.app_secret):
+            raise HTTPException(401, "bad signature")
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            raise HTTPException(400, "invalid JSON")
+        outcomes = []
+        for msg in parse_webhook(payload):
+            try:
+                outcomes.append(bot.handle(msg))
+            except Exception:
+                # Never fail the whole delivery: Meta would retry it and eventually disable the webhook.
+                log.exception("handling %s failed", msg.mid)
+                outcomes.append("error")
+        return {"ok": True, "outcomes": outcomes}
+
+    # ------------------------------------------------------------------ invite + linking pages
+    @app.get("/i/{code}", response_class=HTMLResponse)
+    def invite(code: str):
+        inv = access.get_invite(code)
+        problem = access.invite_problem(inv)
+        if problem:
+            return HTMLResponse(pages.error_page(problem), status_code=404 if not inv else 410)
+        return pages.invite_page(inv["code"], inv["note"])
+
+    @app.post("/i/{code}")
+    def accept_invite(code: str, name: str = Form(""), email: str = Form("")):
+        try:
+            uid = access.redeem_invite(code, name, email)
+        except AccessError as e:
+            inv = access.get_invite(code)
+            if access.invite_problem(inv):
+                return HTMLResponse(pages.error_page(str(e)), status_code=410)
+            return HTMLResponse(pages.invite_page(inv["code"], inv["note"], str(e)), status_code=400)
+        # Redirect so a page reload can't consume a second use of the invite.
+        return RedirectResponse(f"/welcome?t={access.token_for(uid)}", status_code=303)
+
+    def member(t: str = Query("")) -> dict:
+        user = access.user_from_token(t)
+        if not user:
+            raise HTTPException(404, "Link not valid")
+        return user
+
+    @app.get("/welcome", response_class=HTMLResponse)
+    def welcome(t: str = Query(""), user: dict = Depends(member)):
+        lc = access.current_link_code(user["id"]) if not user["igsid"] else {"code": "", "expires_at": " " * 16}
+        return pages.welcome_page(user["name"], lc["code"], lc["expires_at"], s.ig_username, bool(user["igsid"]), t)
+
+    @app.get("/api/me")
+    def me(user: dict = Depends(member)):
+        return {"name": user["name"], "linked": bool(user["igsid"])}
+
+    @app.get("/library", response_class=HTMLResponse)
+    def library(user: dict = Depends(member)):
+        with db.connect() as c:
+            saves = [dict(r) for r in c.execute(
+                "SELECT * FROM saves WHERE user_id = ? ORDER BY created_at DESC", (user["id"],))]
+        return pages.library_page(user["name"], saves)
+
+    # ------------------------------------------------------------------ admin
+    def admin(authorization: str = Header("")):
+        if not s.admin_token or authorization != f"Bearer {s.admin_token}":
+            raise HTTPException(401, "admin token required")
+
+    def with_url(inv: dict) -> dict:
+        return {**inv, "url": f"{s.public_base_url}/i/{inv['code']}"}
+
+    @app.get("/admin", response_class=HTMLResponse)
+    def admin_page():
+        return pages.ADMIN_HTML
+
+    @app.post("/api/admin/invites", dependencies=[Depends(admin)])
+    def create_invite(body: dict = Body(default={})):
+        days = body.get("expires_in_days", 14)
+        inv = access.create_invite(str(body.get("note", ""))[:80], int(body.get("max_uses", 1)), int(days) if days else None)
+        return with_url(inv)
+
+    @app.get("/api/admin/invites", dependencies=[Depends(admin)])
+    def list_invites():
+        return [with_url(i) for i in access.list_invites()]
+
+    @app.post("/api/admin/invites/{code}/revoke", dependencies=[Depends(admin)])
+    def revoke_invite(code: str):
+        access.revoke_invite(code)
+        return {"ok": True}
+
+    @app.get("/api/admin/users", dependencies=[Depends(admin)])
+    def list_users():
+        return access.list_users()
+
+    @app.post("/api/admin/users/{user_id}/status", dependencies=[Depends(admin)])
+    def user_status(user_id: int, body: dict = Body(...)):
+        status = body.get("status")
+        if status not in ("active", "revoked"):
+            raise HTTPException(400, "status must be active or revoked")
+        access.set_user_status(user_id, status)
+        return {"ok": True}
+
+    @app.get("/api/admin/waitlist", dependencies=[Depends(admin)])
+    def waitlist():
+        with db.connect() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM waitlist ORDER BY created_at")]
+
+    @app.post("/api/admin/waitlist/{igsid}/invite", dependencies=[Depends(admin)])
+    def invite_from_waitlist(igsid: str):
+        inv = access.create_invite("waitlist", 1, 14)
+        with db.tx() as c:
+            if not c.execute("SELECT 1 FROM waitlist WHERE igsid = ?", (igsid,)).fetchone():
+                raise HTTPException(404, "not on waitlist")
+            c.execute("UPDATE waitlist SET invited = 1 WHERE igsid = ?", (igsid,))
+            # Instagram only allows replies within 24h of the person's last message.
+            c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)",
+                      (igsid, f"A spot opened up! Your Stash invite: {s.public_base_url}/i/{inv['code']}", now()))
+        return with_url(inv)
+
+    @app.get("/healthz")
+    def health():
+        return JSONResponse({"ok": True, "dry_run": s.dry_run})
+
+    return app
+
