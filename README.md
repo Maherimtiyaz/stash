@@ -1,19 +1,23 @@
-# Stash DM backend (prototype)
+# Stash
 
-Invite-only backend for Stash. People send Instagram reels to **@stash** in DMs; Stash files them and replies "Saved to Recipes ✓".
+Invite-only app for organising saved Instagram reels. People send reels to **@stash** in DMs; Stash files them, replies "Saved to Recipes ✓", and gives each member a web app to search, rediscover, pin and plan their saves.
 
 ## What's in here
 
 | File | Job |
 |---|---|
-| `app/main.py` | FastAPI routes: Meta webhook, invite pages, library, admin API |
+| `app/main.py` | FastAPI routes: Meta webhook, invite pages, admin API, serves the web app at `/app` |
+| `app/api.py` | JSON API for the web app (`/api/v1/*`) |
+| `app/library.py` | Search, boards, statuses, Rediscover, week plan |
 | `app/instagram.py` | Webhook signature check, payload parser, Send API client (+ dry-run client) |
 | `app/access.py` | Invites, users, one-time link codes, signed page links |
 | `app/bot.py` | What to do with each DM (link, save, waitlist, help) |
 | `app/worker.py` | Background worker: categorise saves, send queued replies with retries |
-| `app/db.py` | SQLite schema |
+| `app/db.py` | SQLite schema, plus column migrations for existing databases |
+| `frontend/` | React + TypeScript web app (Vite): `src/views/` one file per tab, `src/components/Viewer.tsx` the save view, `src/components/ui.tsx` the reel card |
 | `scripts/simulate.py` | Send signed fake webhooks to a running server |
-| `tests/test_flow.py` | End-to-end tests of every path |
+| `scripts/seed_demo.py` | Fill a local database with a demo member and sample saves |
+| `tests/` | DM flow, web API, database migration and shelf-sorting tests |
 
 ## Run locally (no Meta account needed)
 
@@ -45,6 +49,61 @@ Tests:
 .venv/bin/python -m pytest -q
 ```
 
+## The web app
+
+Four tabs on a floating dock, one library. Every save is drawn as a bold 9:16 "reel cover" (a colour and pattern per category, big title, stickers for planned day and reminder, a stamp once you've tried it).
+
+- **Shelves**: every save is sorted automatically onto a shelf: Tech, Travel, Recipes, Gym & Fitness, Fashion, Health, Money, Books, Home (or Unsorted). Home shows one row per shelf with counts and "See all", or switch to "Newest". Tap a shelf chip to filter. If Stash picks the wrong shelf, move the save from its view. Sorting uses keyword rules in `app/categories.py`.
+- **Search** (home): your whole stash as a wall of reels. Type what you remember and matching reels light up while the rest fade. Searches captions, creators, `#tags`, your notes and pile names. Filters: `in:Recipes` (also `in:gym`, `in:tech`, `in:food`), `in:"Goa trip"`, `by:@creator`, `is:todo`, `is:done`, plus one-tap chips. Results are grouped by shelf. Enter opens the first match. Type `/` for commands: `/tech`, `/travel`, `/gym`…, `/todo`, `/done`, `/random`, `/capsule`, `/piles`, `/plan`. "On this day" is pinned to the wall with a strip of tape.
+- **Capsule**: forgotten to-try saves, one card at a time, with a postmark showing when you saved it. Drag the card or tap **Keep**, **Later** (back on Saturday) or **Let go**; arrow keys work too. A reviewed save returns after 30 days.
+- **Piles**: each board is a fanned stack of its reels. Open a pile to see it as a Pinterest-style moodboard; create, rename and delete piles.
+- **Plan**: the week. Drag a reel from "Someday" onto a day (or tap it, then tap a day). Drag a planned slip back to Someday to unplan it.
+
+Opening a save shows it large next to everything you can do with it: **I tried it** (with a small confetti burst) or **Not for me**, day tickets for planning, **Nudge me** reminders, pile stickers (you can make a new pile right there) and a sticky note for your own note. Full screen on phones, a card on desktop. Light and dark themes follow the device.
+
+**Sign-in:** the bot's welcome message and the `LIBRARY` command send a private link (`/app/?t=…`). The app stores the token in the browser and removes it from the address bar.
+
+### Run it locally
+
+Build the frontend once (Node 18+), and the FastAPI server serves it at `/app`:
+
+```bash
+cd frontend && npm install && npm run build && cd ..
+```
+
+```bash
+DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py
+```
+
+```bash
+DB_PATH=demo.db IG_APP_SECRET=demo-secret ADMIN_TOKEN=admin-demo .venv/bin/uvicorn app.main:create_app --factory --port 8000
+```
+
+Open the link that `seed_demo.py` printed. For frontend work with hot reload, keep the server running and start Vite in another terminal (it proxies `/api` to port 8000):
+
+```bash
+cd frontend && npm run dev
+```
+
+Then open `http://localhost:5173/app/?t=<token from the seed link>`.
+
+### API
+
+All routes need `Authorization: Bearer <token>`.
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/api/v1/me` | Signed-in member |
+| GET | `/api/v1/home` | Recent saves, "on this day", counts |
+| GET | `/api/v1/categories` | Shelves in display order with counts |
+| GET | `/api/v1/saves?q=` | Search (words + filters) |
+| GET / PATCH / DELETE | `/api/v1/saves/{id}` | Read, change `progress` `note` `board_id` `plan_day` `remind_at` `category`, delete |
+| GET / POST | `/api/v1/boards` | List, create |
+| PATCH / DELETE | `/api/v1/boards/{id}` | Rename, delete (saves are kept) |
+| GET | `/api/v1/rediscover` | Rediscover deck |
+| POST | `/api/v1/saves/{id}/review` | `{"action": "keep" | "let_go" | "later"}` |
+| GET | `/api/v1/plan?start=YYYY-MM-DD` | Week plan and someday pile |
+
 ## Connect real Instagram
 
 1. Create a **Business or Creator** Instagram account for @stash.
@@ -69,3 +128,7 @@ Tests:
 - SQLite + an in-process worker thread. For production: Postgres and a separate worker (Celery/RQ/arq) with the same tables.
 - Page links (`/welcome`, `/library`) are signed but don't expire. Add expiry or a real login before a public launch.
 - No rate limiting on the webhook or invite pages yet.
+- Reminders are stored but not sent yet. Instagram only allows bot DMs within 24 h of the member's last message, so delivery needs email or web push.
+- Search scans a member's saves in Python. Fine for thousands of saves; move to SQLite FTS5 or Postgres full-text search beyond that.
+- Saves have no thumbnails yet; cards use a colour per category until media fetching exists.
+- Plan "today" uses the server's UTC date, so it can be a day off near midnight in other time zones.
