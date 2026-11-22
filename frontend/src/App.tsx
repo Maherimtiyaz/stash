@@ -4,6 +4,7 @@ import { Viewer } from "./components/Viewer";
 import { Empty, Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
 import type { Me } from "./types";
+import { SearchView } from "./views/SearchView";
 
 type Tab = "search" | "rediscover" | "boards" | "plan";
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
@@ -68,7 +69,7 @@ function Shell() {
         <button className="signout" onClick={() => { setToken(null); window.location.reload(); }}>Sign out</button>
       </header>
       <main className="main" id="main">
-        {tab === "search" && <Soon name="search" />}
+        {tab === "search" && <SearchView />}
         {tab === "rediscover" && <Soon name="rediscover" />}
         {tab === "boards" && <Soon name="boards" />}
         {tab === "plan" && <Soon name="plan" />}
