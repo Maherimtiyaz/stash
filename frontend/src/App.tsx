@@ -4,6 +4,7 @@ import { Viewer } from "./components/Viewer";
 import { Empty, Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
 import type { Me } from "./types";
+import { BoardsView } from "./views/BoardsView";
 import { RediscoverView } from "./views/RediscoverView";
 import { SearchView } from "./views/SearchView";
 
@@ -72,7 +73,7 @@ function Shell() {
       <main className="main" id="main">
         {tab === "search" && <SearchView />}
         {tab === "rediscover" && <RediscoverView />}
-        {tab === "boards" && <Soon name="boards" />}
+        {tab === "boards" && <BoardsView />}
         {tab === "plan" && <Soon name="plan" />}
       </main>
       <nav className="dock" aria-label="Sections">
