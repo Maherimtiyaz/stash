@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, setToken, takeToken } from "./api";
+import { Viewer } from "./components/Viewer";
 import { Empty, Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
 import type { Me } from "./types";
@@ -79,6 +80,7 @@ function Shell() {
           </button>
         ))}
       </nav>
+      <Viewer />
       {toastMsg && <div className="toast" role="status" key={toastMsg}>{toastMsg}</div>}
     </div>
   );
