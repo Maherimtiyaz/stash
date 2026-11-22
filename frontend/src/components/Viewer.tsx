@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { addDays, ago, isoDate, parseDay, reminderOptions, remindLabel, title } from "../lib/format";
+import { addDays, ago, isoDate, lookStyle, parseDay, reminderOptions, remindLabel, shelfLabel, title } from "../lib/format";
 import { useApp } from "../store";
 import type { Save, SaveChanges } from "../types";
 import { Icon, Reel, Spinner, burst } from "./ui";
+
+const SHELVES = ["Tech", "Travel", "Recipes", "Fitness", "Fashion", "Health", "Money", "Books", "Home", "Unsorted"];
 
 /** Opening a save: the reel large on one side, everything you can do with it on the other. */
 export function Viewer() {
@@ -105,7 +107,7 @@ export function Viewer() {
 
             <div className="viewer-body">
               <div className="viewer-head">
-                <span className="kicker">{save.category} · saved {ago(save.saved_at)}</span>
+                <span className="kicker">{shelfLabel(save.category)} shelf · saved {ago(save.saved_at)}</span>
                 <h2>{title(save)}</h2>
                 {save.creator && <span className="creator">{save.creator}</span>}
               </div>
@@ -172,6 +174,20 @@ export function Viewer() {
                       <button className="pill ghost" type="button" onClick={() => setNewBoard(null)}>Cancel</button>
                     </form>
                   )}
+                </div>
+              </section>
+
+              <section className="block">
+                <h3>Shelf</h3>
+                <p className="meta">Stash sorted this onto <b>{shelfLabel(save.category)}</b>. Wrong shelf? Move it:</p>
+                <div className="shelf-pick">
+                  {SHELVES.map((c) => (
+                    <button key={c} className={`shelf-dot${save.category === c ? " on" : ""}`} aria-pressed={save.category === c}
+                      style={lookStyle({ category: c, id: 0 })}
+                      onClick={() => save.category !== c && apply({ category: c }, `Moved to ${shelfLabel(c)}`)}>
+                      {shelfLabel(c)}
+                    </button>
+                  ))}
                 </div>
               </section>
 
