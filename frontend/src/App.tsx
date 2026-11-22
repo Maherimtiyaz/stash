@@ -4,6 +4,7 @@ import { Viewer } from "./components/Viewer";
 import { Empty, Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
 import type { Me } from "./types";
+import { RediscoverView } from "./views/RediscoverView";
 import { SearchView } from "./views/SearchView";
 
 type Tab = "search" | "rediscover" | "boards" | "plan";
@@ -70,7 +71,7 @@ function Shell() {
       </header>
       <main className="main" id="main">
         {tab === "search" && <SearchView />}
-        {tab === "rediscover" && <Soon name="rediscover" />}
+        {tab === "rediscover" && <RediscoverView />}
         {tab === "boards" && <Soon name="boards" />}
         {tab === "plan" && <Soon name="plan" />}
       </main>
