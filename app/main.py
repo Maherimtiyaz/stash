@@ -3,7 +3,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Body, Depends, FastAPI, Form, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from pathlib import Path
 
 from . import pages
 from .access import Access, AccessError
@@ -24,7 +25,9 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     db = Database(s.db_path)
     access = Access(db, s.secret_key, s.link_code_minutes)
     library = Library(db)
-    bot = Bot(db, access, s.public_base_url, s.ig_username)
+    dist = Path(s.frontend_dist) if s.frontend_dist else None
+    has_frontend = bool(dist and (dist / "index.html").is_file())
+    bot = Bot(db, access, s.public_base_url, s.ig_username, app_path="/app" if has_frontend else "/library")
     if messenger is None:
         messenger = DryRunMessenger() if s.dry_run else GraphMessenger(s.access_token, s.graph_version)
     worker = Worker(db, messenger)
@@ -110,7 +113,9 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
         return {"name": user["name"], "linked": bool(user["igsid"])}
 
     @app.get("/library", response_class=HTMLResponse)
-    def library(user: dict = Depends(member)):
+    def library_page(t: str = Query(""), user: dict = Depends(member)):
+        if has_frontend:
+            return RedirectResponse(f"/app/?t={t}", status_code=302)
         with db.connect() as c:
             saves = [dict(r) for r in c.execute(
                 "SELECT * FROM saves WHERE user_id = ? ORDER BY created_at DESC", (user["id"],))]
@@ -171,6 +176,16 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
             c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)",
                       (igsid, f"A spot opened up! Your Stash invite: {s.public_base_url}/i/{inv['code']}", now()))
         return with_url(inv)
+
+    # ------------------------------------------------------------------ web app (built React files)
+    if has_frontend:
+        @app.get("/app", include_in_schema=False)
+        @app.get("/app/{path:path}", include_in_schema=False)
+        def web_app(path: str = ""):
+            target = (dist / path).resolve()
+            if path and target.is_file() and dist.resolve() in target.parents:
+                return FileResponse(target)
+            return FileResponse(dist / "index.html")  # client-side routes
 
     @app.get("/healthz")
     def health():

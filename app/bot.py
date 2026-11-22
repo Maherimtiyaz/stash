@@ -18,17 +18,19 @@ INVITE_ONLY = (
 
 
 class Bot:
-    def __init__(self, db: Database, access: Access, public_base_url: str, ig_username: str):
+    def __init__(self, db: Database, access: Access, public_base_url: str, ig_username: str, app_path: str = "/library"):
         self.db = db
         self.access = access
         self.base = public_base_url
         self.username = ig_username
+        self.app_path = app_path
 
     def reply(self, c, igsid: str, text: str) -> None:
         c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)", (igsid, text, now()))
 
     def library_url(self, user_id: int) -> str:
-        return f"{self.base}/library?t={self.access.token_for(user_id)}"
+        sep = "/?" if self.app_path == "/app" else "?"
+        return f"{self.base}{self.app_path}{sep}t={self.access.token_for(user_id)}"
 
     def handle(self, msg: Incoming) -> str:
         """Returns a short outcome label (used in logs and tests)."""

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from dataclasses import dataclass
 
 
@@ -15,6 +16,7 @@ class Settings:
     db_path: str = "stash.db"
     worker_enabled: bool = True
     link_code_minutes: int = 30
+    frontend_dist: str = ""     # folder with the built web app; empty disables /app
 
     @property
     def dry_run(self) -> bool:
@@ -35,4 +37,5 @@ class Settings:
             public_base_url=e("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/"),
             db_path=e("DB_PATH", "stash.db"),
             worker_enabled=e("WORKER_ENABLED", "1") == "1",
+            frontend_dist=e("FRONTEND_DIST", str(Path(__file__).resolve().parents[1] / "frontend" / "dist")),
         )
