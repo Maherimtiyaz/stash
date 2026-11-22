@@ -63,12 +63,32 @@ CREATE TABLE IF NOT EXISTS outbox (
     last_error  TEXT,
     created_at  TEXT NOT NULL
 );
+-- User-made boards (collections). A save sits on at most one board.
+CREATE TABLE IF NOT EXISTS boards (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    name        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    UNIQUE (user_id, name)
+);
 CREATE TABLE IF NOT EXISTS waitlist (
     igsid       TEXT PRIMARY KEY,
     created_at  TEXT NOT NULL,
     invited     INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+# Columns added after the first release. Applied to existing databases on start-up.
+SAVE_COLUMNS = {
+    "creator": "TEXT NOT NULL DEFAULT ''",
+    "progress": "TEXT NOT NULL DEFAULT 'try'",     # try | done | skip (the person's own status)
+    "note": "TEXT NOT NULL DEFAULT ''",
+    "board_id": "INTEGER REFERENCES boards(id) ON DELETE SET NULL",
+    "plan_day": "TEXT",                            # ISO date the person planned it for
+    "remind_at": "TEXT",                           # ISO datetime (UTC)
+    "reviewed_at": "TEXT",                         # last time it was shown in Rediscover
+}
 
 
 def now() -> str:
@@ -80,6 +100,11 @@ class Database:
         self.path = path
         with self.connect() as c:
             c.executescript(SCHEMA)
+            have = {r["name"] for r in c.execute("PRAGMA table_info(saves)")}
+            for col, ddl in SAVE_COLUMNS.items():
+                if col not in have:
+                    c.execute(f"ALTER TABLE saves ADD COLUMN {col} {ddl}")
+            c.execute("UPDATE saves SET category = 'Tech' WHERE category = 'Coding'")  # renamed shelf
 
     @contextmanager
     def connect(self):
