@@ -7,9 +7,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 
 from . import pages
 from .access import Access, AccessError
+from .api import build_router
 from .bot import Bot
 from .config import Settings
 from .db import Database, now
+from .library import Library
 from .instagram import DryRunMessenger, GraphMessenger, Messenger, parse_webhook, verify_signature
 from .worker import Worker
 
@@ -21,6 +23,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     s = settings or Settings.from_env()
     db = Database(s.db_path)
     access = Access(db, s.secret_key, s.link_code_minutes)
+    library = Library(db)
     bot = Bot(db, access, s.public_base_url, s.ig_username)
     if messenger is None:
         messenger = DryRunMessenger() if s.dry_run else GraphMessenger(s.access_token, s.graph_version)
@@ -37,6 +40,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     app = FastAPI(title="Stash DM backend", lifespan=lifespan)
     app.state.settings, app.state.db, app.state.access = s, db, access
     app.state.bot, app.state.worker, app.state.messenger = bot, worker, messenger
+    app.include_router(build_router(access, library))
 
     # ------------------------------------------------------------------ Meta webhook
     @app.get("/webhooks/instagram")
