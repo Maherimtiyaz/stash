@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, setToken, takeToken } from "./api";
 import { Viewer } from "./components/Viewer";
-import { Empty, Icon, Spinner, type IconName } from "./components/ui";
+import { Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
 import type { Me } from "./types";
 import { BoardsView } from "./views/BoardsView";
+import { PlanView } from "./views/PlanView";
 import { RediscoverView } from "./views/RediscoverView";
 import { SearchView } from "./views/SearchView";
 
@@ -74,7 +75,7 @@ function Shell() {
         {tab === "search" && <SearchView />}
         {tab === "rediscover" && <RediscoverView />}
         {tab === "boards" && <BoardsView />}
-        {tab === "plan" && <Soon name="plan" />}
+        {tab === "plan" && <PlanView />}
       </main>
       <nav className="dock" aria-label="Sections">
         {TABS.map((t) => (
@@ -117,9 +118,4 @@ function SignIn({ onDone }: { onDone: () => void }) {
       </div>
     </div>
   );
-}
-
-/** Placeholder for a tab that isn't built yet. */
-function Soon({ name }: { name: string }) {
-  return <section className="view"><Empty title="Coming soon"><p>The {name} tab is on its way.</p></Empty></section>;
 }
