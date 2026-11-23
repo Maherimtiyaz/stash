@@ -63,6 +63,23 @@ CREATE TABLE IF NOT EXISTS outbox (
     last_error  TEXT,
     created_at  TEXT NOT NULL
 );
+-- Single-use sign-in links for the web app (only a hash of the token is stored).
+CREATE TABLE IF NOT EXISTS login_links (
+    token_hash  TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    used_at     TEXT
+);
+-- Web app sessions. Signing out sets revoked_at.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash   TEXT PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    last_seen_at TEXT,
+    revoked_at   TEXT
+);
 -- User-made boards (collections). A save sits on at most one board.
 CREATE TABLE IF NOT EXISTS boards (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

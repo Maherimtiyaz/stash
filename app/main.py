@@ -115,7 +115,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     @app.get("/library", response_class=HTMLResponse)
     def library_page(t: str = Query(""), user: dict = Depends(member)):
         if has_frontend:
-            return RedirectResponse(f"/app/?t={t}", status_code=302)
+            return RedirectResponse(f"/app/?t={access.create_login_link(user['id'])}", status_code=302)
         with db.connect() as c:
             saves = [dict(r) for r in c.execute(
                 "SELECT * FROM saves WHERE user_id = ? ORDER BY created_at DESC", (user["id"],))]

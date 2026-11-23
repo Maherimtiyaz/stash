@@ -24,13 +24,16 @@ class Bot:
         self.base = public_base_url
         self.username = ig_username
         self.app_path = app_path
+        self.link_note = " (link works once, for 24 hours)" if app_path == "/app" else ""
 
     def reply(self, c, igsid: str, text: str) -> None:
         c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)", (igsid, text, now()))
 
     def library_url(self, user_id: int) -> str:
-        sep = "/?" if self.app_path == "/app" else "?"
-        return f"{self.base}{self.app_path}{sep}t={self.access.token_for(user_id)}"
+        """Web app: a single-use sign-in link (24 h). Fallback page: a signed 7-day link."""
+        if self.app_path == "/app":
+            return f"{self.base}/app/?t={self.access.create_login_link(user_id)}"
+        return f"{self.base}{self.app_path}?t={self.access.token_for(user_id)}"
 
     def handle(self, msg: Incoming) -> str:
         """Returns a short outcome label (used in logs and tests)."""
@@ -68,22 +71,24 @@ class Bot:
                 # Reels from strangers are not stored.
                 self.reply(c, msg.sender, INVITE_ONLY)
                 return "invite-only"
+        url = self.library_url(user["id"])  # writes to the DB, so not inside the reply transaction
         with self.db.tx() as c:
             self.reply(
                 c, msg.sender,
                 f"You're in, {user['name']}! Your Instagram is now linked to Stash.\n"
-                f"From now on, send me any reel and I'll file it.\nYour library: {self.library_url(user['id'])}",
+                f"From now on, send me any reel and I'll file it.\nYour library{self.link_note}: {url}",
             )
         return "linked"
 
     # ---------- linked member ----------
     def _handle_member(self, user: dict, msg: Incoming) -> str:
+        if not msg.shares and msg.text.strip().upper() in ("LIBRARY", "LINK", "MY STASH"):
+            url = self.library_url(user["id"])
+            with self.db.tx() as c:
+                self.reply(c, msg.sender, f"Your library{self.link_note}: {url}")
+            return "library"
         with self.db.tx() as c:
             if not msg.shares:
-                cmd = msg.text.strip().upper()
-                if cmd in ("LIBRARY", "LINK", "MY STASH"):
-                    self.reply(c, msg.sender, f"Your library: {self.library_url(user['id'])}")
-                    return "library"
                 self.reply(c, msg.sender, HELP.format(username=self.username))
                 return "help"
             queued, dupes = 0, []

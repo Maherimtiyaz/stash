@@ -144,3 +144,11 @@ def test_welcome_links_expire_and_cannot_be_forged(env):
     assert access.user_from_token(access.token_for(int(uid), days=-1)) is None  # expired
     assert access.user_from_token(f"{uid}.{sig}") is None                    # old two-part format
     assert client.get(f"/welcome?t={access.token_for(int(uid), days=-1)}").status_code == 404
+
+
+def test_library_reply_contains_a_link(env):
+    client, app, m = env
+    onboard(client, app)
+    drain(app, m)
+    assert send(client, build(ALICE, "text", "library")).json()["outcomes"] == ["library"]
+    assert "/library?t=" in drain(app, m)[0]

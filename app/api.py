@@ -3,7 +3,7 @@ from datetime import date
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from .access import Access
+from .access import Access, AccessError
 from .library import Invalid, Library, NotFound
 
 EDITABLE = {"progress", "note", "board_id", "plan_day", "remind_at", "category"}
@@ -12,12 +12,27 @@ EDITABLE = {"progress", "note", "board_id", "plan_day", "remind_at", "category"}
 def build_router(access: Access, library: Library) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
 
-    def member(authorization: str = Header("")) -> dict:
-        token = authorization.removeprefix("Bearer ").strip()
-        user = access.user_from_token(token) if token else None
+    def bearer(authorization: str = Header("")) -> str:
+        return authorization.removeprefix("Bearer ").strip()
+
+    def member(token: str = Depends(bearer)) -> dict:
+        user = access.user_from_session(token)
         if not user:
-            raise HTTPException(401, "Your sign-in link isn't valid. Send LIBRARY to @stash for a new one.")
+            raise HTTPException(401, "You're signed out. Send LIBRARY to @stash on Instagram for a sign-in link.")
         return user
+
+    @r.post("/session")
+    def start_session(body: dict = Body(...)):
+        """Swap a single-use sign-in link for a 30-day session."""
+        try:
+            return access.exchange_login_link(str(body.get("link", "")))
+        except AccessError as e:
+            raise HTTPException(401, str(e))
+
+    @r.delete("/session")
+    def end_session(token: str = Depends(bearer)):
+        access.revoke_session(token)
+        return {"ok": True}
 
     def run(fn, *a, **kw):
         try:
