@@ -19,7 +19,7 @@ interface Command { key: string; label: string; hint: string; run: () => void }
 
 /** Home: one big search box (direction D), your saves sorted onto shelves (Tech, Travel, Recipes, Gym…). */
 export function SearchView() {
-  const { me, openSave, version } = useApp();
+  const { me, openSave, version, setRemindersOpen } = useApp();
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [layout, setLayout] = useState<Layout>(readLayout);
@@ -99,6 +99,7 @@ export function SearchView() {
     { key: "/capsule", label: "Open the time capsule", hint: "forgotten saves", run: go("rediscover") },
     { key: "/piles", label: "Open your piles", hint: "boards", run: go("boards") },
     { key: "/plan", label: "Open this week's plan", hint: "plan", run: go("plan") },
+    { key: "/reminders", label: "Set up reminders", hint: "DM, notifications, email", run: () => { setQ(""); setRemindersOpen(true); } },
     { key: "/signout", label: "Sign out", hint: "", run: () => { signOut().finally(() => window.location.replace(window.location.pathname)); } },
   ];
   const typed = q.slice(1).toLowerCase();

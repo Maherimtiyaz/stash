@@ -34,6 +34,16 @@ export interface Me {
   id: number;
   name: string;
   instagram_linked: boolean;
+  email: string;
+}
+
+export interface ReminderSettings {
+  channels: {
+    dm: { open: boolean; until: string | null };
+    push: { devices: number; public_key: string; live: boolean };
+    email: { address: string; live: boolean };
+  };
+  upcoming: { id: number; caption: string; category: string; remind_at: string }[];
 }
 
 export interface Home {

@@ -1,5 +1,6 @@
 import hmac
 import json
+import mimetypes
 import logging
 from contextlib import asynccontextmanager
 
@@ -20,6 +21,7 @@ from .instagram import DryRunMessenger, GraphMessenger, Messenger, parse_webhook
 from .worker import Worker
 
 log = logging.getLogger("stash")
+mimetypes.add_type("application/manifest+json", ".webmanifest")  # the web app's install manifest
 
 
 def create_app(settings: Settings | None = None, messenger: Messenger | None = None,

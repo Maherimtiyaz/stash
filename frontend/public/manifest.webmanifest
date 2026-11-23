@@ -1,0 +1,15 @@
+{
+  "name": "Stash",
+  "short_name": "Stash",
+  "description": "Your saved reels, sorted and findable.",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#fff1e6",
+  "theme_color": "#ff5a1f",
+  "icons": [
+    { "src": "/app/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

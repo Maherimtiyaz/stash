@@ -12,6 +12,8 @@ interface Ctx {
   openSave: (id: number) => void;
   closeSave: () => void;
   openId: number | null;
+  remindersOpen: boolean;
+  setRemindersOpen: (open: boolean) => void;
   toast: (msg: string) => void;
   toastMsg: string;
 }
@@ -22,6 +24,7 @@ export function AppProvider({ me, children }: { me: Me; children: ReactNode }) {
   const [boards, setBoards] = useState<Board[]>([]);
   const [version, setVersion] = useState(0);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const timer = useRef<number>();
 
@@ -42,9 +45,11 @@ export function AppProvider({ me, children }: { me: Me; children: ReactNode }) {
     refreshBoards,
     version,
     changed: () => setVersion((v) => v + 1),
-    openSave: setOpenId,
+    openSave: setOpenId, // a state setter, so it never changes between renders
     closeSave: () => setOpenId(null),
     openId,
+    remindersOpen,
+    setRemindersOpen,
     toast,
     toastMsg,
   };
