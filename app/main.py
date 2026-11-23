@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -23,6 +24,12 @@ log = logging.getLogger("stash")
 def create_app(settings: Settings | None = None, messenger: Messenger | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     s = settings or Settings.from_env()
+    problems = security.secret_problems(s)
+    if problems and s.is_production:
+        raise RuntimeError("Refusing to start in production:\n- " + "\n- ".join(problems)
+                           + "\nRun: python scripts/make_secrets.py")
+    for p in problems:
+        log.warning("Not safe for a live server: %s", p)
     db = Database(s.db_path)
     access = Access(db, s.secret_key, s.link_code_minutes)
     library = Library(db)
@@ -125,7 +132,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
 
     # ------------------------------------------------------------------ admin
     def admin(authorization: str = Header("")):
-        if not s.admin_token or authorization != f"Bearer {s.admin_token}":
+        if not s.admin_token or not hmac.compare_digest(authorization.encode(), f"Bearer {s.admin_token}".encode()):
             raise HTTPException(401, "admin token required")
 
     def with_url(inv: dict) -> dict:

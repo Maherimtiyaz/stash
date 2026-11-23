@@ -1,6 +1,8 @@
+import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,3 +64,30 @@ def test_security_headers(tmp_path):
         assert "max-age" in r.headers["Strict-Transport-Security"]
     assert api.headers["Cache-Control"] == "no-store"
 
+
+def test_production_refuses_weak_secrets(tmp_path):
+    with pytest.raises(RuntimeError) as e:
+        make(tmp_path, app_env="production", secret_key="dev-secret", admin_token="short", public_base_url="http://x")
+    msg = str(e.value)
+    assert "SECRET_KEY" in msg and "ADMIN_TOKEN" in msg and "PUBLIC_BASE_URL" in msg and "make_secrets" in msg
+    make(tmp_path, app_env="production")  # strong values start fine
+
+
+def test_development_only_warns(tmp_path, caplog):
+    make(tmp_path, secret_key="dev-secret")
+    assert any("SECRET_KEY" in r.getMessage() for r in caplog.records)
+
+
+def test_admin_token_still_checked(tmp_path):
+    with TestClient(make(tmp_path)) as c:
+        assert c.get("/api/admin/users", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert c.get("/api/admin/users", headers={"Authorization": f"Bearer {'a' * 30}"}).status_code == 200
+
+
+def test_make_secrets_prints_strong_values():
+    out = subprocess.run([sys.executable, str(ROOT / "scripts/make_secrets.py")], capture_output=True, text=True).stdout
+    values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line and not line.startswith("#"))
+    s = Settings(secret_key=values["SECRET_KEY"], admin_token=values["ADMIN_TOKEN"], verify_token=values["IG_VERIFY_TOKEN"],
+                 app_secret="x-meta", public_base_url="https://stash.example")
+    from app.security import secret_problems
+    assert secret_problems(s) == [] and values["APP_ENV"] == "production"

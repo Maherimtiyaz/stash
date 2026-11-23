@@ -1,4 +1,4 @@
-"""Request limits and security headers."""
+"""Request limits, security headers and start-up checks for secrets."""
 import re
 import threading
 import time
@@ -90,3 +90,21 @@ def install(app: FastAPI, s: Settings) -> None:
             h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
+
+WEAK = {"", "dev-secret", "change-me", "change-me-long-random", "change-me-another-long-random", "replace-with-app-secret"}
+
+
+def secret_problems(s: Settings) -> list[str]:
+    """What's wrong with the secrets for a live server. Empty list means fine."""
+    p = []
+    if s.secret_key in WEAK or len(s.secret_key) < 32:
+        p.append("SECRET_KEY must be a random value of at least 32 characters")
+    if s.admin_token and (s.admin_token in WEAK or len(s.admin_token) < 24):
+        p.append("ADMIN_TOKEN must be at least 24 random characters (or empty to turn the admin panel off)")
+    if not s.app_secret or s.app_secret in WEAK:
+        p.append("IG_APP_SECRET must be your Meta app secret")
+    if not s.verify_token or len(s.verify_token) < 16:
+        p.append("IG_VERIFY_TOKEN must be at least 16 random characters")
+    if not s.public_base_url.startswith("https://"):
+        p.append("PUBLIC_BASE_URL must start with https://")
+    return p
