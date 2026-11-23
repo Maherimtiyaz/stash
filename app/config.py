@@ -17,6 +17,13 @@ class Settings:
     worker_enabled: bool = True
     link_code_minutes: int = 30
     frontend_dist: str = ""     # folder with the built web app; empty disables /app
+    app_env: str = "development"   # "production" turns on strict checks and HSTS
+    rate_limits: bool = True
+    trust_proxy: bool = False      # read the visitor's IP from X-Forwarded-For (only behind your own proxy)
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env == "production"
 
     @property
     def dry_run(self) -> bool:
@@ -38,4 +45,7 @@ class Settings:
             db_path=e("DB_PATH", "stash.db"),
             worker_enabled=e("WORKER_ENABLED", "1") == "1",
             frontend_dist=e("FRONTEND_DIST", str(Path(__file__).resolve().parents[1] / "frontend" / "dist")),
+            app_env=e("APP_ENV", "development").strip().lower(),
+            rate_limits=e("RATE_LIMITS", "1") == "1",
+            trust_proxy=e("TRUST_PROXY", "0") == "1",
         )

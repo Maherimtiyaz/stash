@@ -13,6 +13,7 @@ from .bot import Bot
 from .config import Settings
 from .db import Database, now
 from .library import Library
+from . import security
 from .instagram import DryRunMessenger, GraphMessenger, Messenger, parse_webhook, verify_signature
 from .worker import Worker
 
@@ -43,6 +44,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     app = FastAPI(title="Stash DM backend", lifespan=lifespan)
     app.state.settings, app.state.db, app.state.access = s, db, access
     app.state.bot, app.state.worker, app.state.messenger = bot, worker, messenger
+    security.install(app, s)
     app.include_router(build_router(access, library))
 
     # ------------------------------------------------------------------ Meta webhook
