@@ -14,6 +14,7 @@ from .config import Settings
 RULES: list[tuple[str, re.Pattern, int]] = [
     ("POST", re.compile(r"^/api/v1/session$"), 10),     # swapping sign-in links
     ("POST", re.compile(r"^/i/[^/]+$"), 10),            # accepting invites
+    ("POST", re.compile(r"^/api/v1/reminders/test$"), 5),  # sends real messages
     ("*", re.compile(r"^/api/admin/"), 60),             # admin API (also slows token guessing)
     ("*", re.compile(r"^/(i/[^/]+|welcome|library|api/me)$"), 60),
     ("*", re.compile(r"^/api/v1/"), 300),               # the web app

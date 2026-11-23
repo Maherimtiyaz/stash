@@ -1,3 +1,4 @@
+import base64
 import subprocess
 import sys
 from pathlib import Path
@@ -91,3 +92,7 @@ def test_make_secrets_prints_strong_values():
                  app_secret="x-meta", public_base_url="https://stash.example")
     from app.security import secret_problems
     assert secret_problems(s) == [] and values["APP_ENV"] == "production"
+    # The VAPID pair works for real Web Push signing.
+    from py_vapid import Vapid02
+    assert Vapid02.from_string(values["VAPID_PRIVATE_KEY"]).public_key is not None
+    assert len(base64.urlsafe_b64decode(values["VAPID_PUBLIC_KEY"] + "==")) == 65

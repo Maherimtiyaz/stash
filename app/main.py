@@ -14,6 +14,7 @@ from .bot import Bot
 from .config import Settings
 from .db import Database, now
 from .library import Library
+from .reminders import DryRunMailer, DryRunPusher, Mailer, Pusher, Reminders, SmtpMailer, WebPusher
 from . import security
 from .instagram import DryRunMessenger, GraphMessenger, Messenger, parse_webhook, verify_signature
 from .worker import Worker
@@ -21,7 +22,8 @@ from .worker import Worker
 log = logging.getLogger("stash")
 
 
-def create_app(settings: Settings | None = None, messenger: Messenger | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, messenger: Messenger | None = None,
+               mailer: Mailer | None = None, pusher: Pusher | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     s = settings or Settings.from_env()
     problems = security.secret_problems(s)
@@ -38,7 +40,14 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     bot = Bot(db, access, s.public_base_url, s.ig_username, app_path="/app" if has_frontend else "/library")
     if messenger is None:
         messenger = DryRunMessenger() if s.dry_run else GraphMessenger(s.access_token, s.graph_version)
-    worker = Worker(db, messenger)
+    if mailer is None:
+        mailer = (SmtpMailer(s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_password, s.mail_from or s.smtp_user, s.smtp_starttls)
+                  if s.smtp_host else DryRunMailer())
+    if pusher is None:
+        pusher = WebPusher(s.vapid_private_key, s.vapid_subject) if s.vapid_private_key else DryRunPusher()
+    reminders = Reminders(db, access, mailer, pusher, s.public_base_url, has_frontend)
+    reminders.public_key = s.vapid_public_key
+    worker = Worker(db, messenger, reminders=reminders)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -52,7 +61,8 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     app.state.settings, app.state.db, app.state.access = s, db, access
     app.state.bot, app.state.worker, app.state.messenger = bot, worker, messenger
     security.install(app, s)
-    app.include_router(build_router(access, library))
+    app.state.reminders, app.state.mailer, app.state.pusher = reminders, mailer, pusher
+    app.include_router(build_router(access, library, reminders))
 
     # ------------------------------------------------------------------ Meta webhook
     @app.get("/webhooks/instagram")
