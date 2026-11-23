@@ -61,7 +61,7 @@ Four tabs on a floating dock, one library. Every save is drawn as a bold 9:16 "r
 
 Opening a save shows it large next to everything you can do with it: **I tried it** (with a small confetti burst) or **Not for me**, day tickets for planning, **Nudge me** reminders, pile stickers (you can make a new pile right there) and a sticky note for your own note. Full screen on phones, a card on desktop. Light and dark themes follow the device.
 
-**Sign-in:** the bot's welcome message and the `LIBRARY` command send a private link (`/app/?t=…`). The app stores the token in the browser and removes it from the address bar.
+**Sign-in:** the bot's welcome message and the `LIBRARY` command send a private link (`/app/?t=…`) that works **once, for 24 hours**. The app swaps it for a 30-day session, removes it from the address bar, and **Sign out** ends the session on the server. A used or expired link shows a clear message; send `LIBRARY` again for a new one.
 
 ### Run it locally
 
@@ -113,6 +113,26 @@ All routes need `Authorization: Bearer <token>`.
 5. While the Meta app is in **development mode**, only Instagram accounts added as testers in the app's roles can trigger webhooks. That is enough for a private beta of a few friends. For more people, submit App Review for `instagram_business_manage_messages` (Advanced Access).
 6. **First real test:** share a reel to @stash and look at the server log. Confirm the `ig_reel` attachment fields (`reel_video_id`, `title`, `url`) match `app/instagram.py`, and adjust the parser if Meta's payload differs.
 
+## Security
+
+| Protection | How |
+|---|---|
+| Sign-in links | Single-use, expire after 24 hours. Only SHA-256 hashes are stored. |
+| Sessions | 30 days, ended by **Sign out** or when an admin turns the member off. Only hashes are stored. |
+| Welcome-page links | Signed with an expiry (7 days) that can't be edited. |
+| Rate limits | Per visitor and per minute: 10 sign-in link swaps, 10 invite submissions, 60 admin calls, 300 web app API calls. Over the limit → `429` with `Retry-After`. |
+| Headers | `no-referrer` (links never leak to other sites), `nosniff`, no framing, strict Content-Security-Policy on the web app, no caching of API responses, HSTS in production. |
+| Secrets | With `APP_ENV=production` the server won't start with weak or missing secrets and lists what to fix. |
+| Admin token | Compared in constant time. Leave `ADMIN_TOKEN` empty to turn the admin panel off. |
+
+**Before going live**, generate secrets and paste them into your host's environment settings (never commit them):
+
+```bash
+python scripts/make_secrets.py
+```
+
+Also set `IG_APP_SECRET` from your Meta app, `PUBLIC_BASE_URL=https://your-domain`, and `TRUST_PROXY=1` if the app runs behind your host's proxy (Railway, Render and Fly.io all do), so limits apply per visitor instead of per proxy.
+
 ## How invite-only works
 
 - Admin creates an invite (single-use or N uses, expiry) → link `/i/<code>`.
@@ -126,8 +146,7 @@ All routes need `Authorization: Bearer <token>`.
 
 - Categories come from keyword rules on the caption. Next step: fetch media, transcribe, and call an LLM in `worker.understand()`.
 - SQLite + an in-process worker thread. For production: Postgres and a separate worker (Celery/RQ/arq) with the same tables.
-- Page links (`/welcome`, `/library`) are signed but don't expire. Add expiry or a real login before a public launch.
-- No rate limiting on the webhook or invite pages yet.
+- Rate limits are kept in memory, so they reset on restart and don't add up across several server processes. Use Redis when running more than one.
 - Reminders are stored but not sent yet. Instagram only allows bot DMs within 24 h of the member's last message, so delivery needs email or web push.
 - Search scans a member's saves in Python. Fine for thousands of saves; move to SQLite FTS5 or Postgres full-text search beyond that.
 - Saves have no thumbnails yet; cards use a colour per category until media fetching exists.
