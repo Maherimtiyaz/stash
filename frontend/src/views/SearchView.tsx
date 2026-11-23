@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, setToken } from "../api";
+import { api, signOut } from "../api";
 import { Empty, Icon, Reel, Spinner } from "../components/ui";
 import { ago, freeWords, lookStyle, shelfLabel } from "../lib/format";
 import { useApp, useLoad } from "../store";
@@ -99,7 +99,7 @@ export function SearchView() {
     { key: "/capsule", label: "Open the time capsule", hint: "forgotten saves", run: go("rediscover") },
     { key: "/piles", label: "Open your piles", hint: "boards", run: go("boards") },
     { key: "/plan", label: "Open this week's plan", hint: "plan", run: go("plan") },
-    { key: "/signout", label: "Sign out", hint: "", run: () => { setToken(null); window.location.reload(); } },
+    { key: "/signout", label: "Sign out", hint: "", run: () => { signOut().finally(() => window.location.replace(window.location.pathname)); } },
   ];
   const typed = q.slice(1).toLowerCase();
   const shown = commands.filter((c) => c.key.slice(1).startsWith(typed) || c.label.toLowerCase().includes(typed));

@@ -371,3 +371,5 @@ svg.i { stroke: currentColor; fill: none; stroke-width: 2.3; stroke-linecap: rou
 .tile-title { font: 800 1rem/1.1 var(--display); letter-spacing: -.02em; color: var(--fg); }
 .tile-by { font-size: .74rem; font-weight: 700; color: var(--fg); opacity: .88; }
 .tile .stamp { top: 42%; font-size: .78rem; }
+
+.notice { background: var(--mark); color: #1a1014; border: 2px solid var(--line); border-radius: 12px; padding: 8px 12px; font-weight: 700; }

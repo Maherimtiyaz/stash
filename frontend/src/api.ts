@@ -3,22 +3,51 @@ import type { Board, Home, Me, ReviewAction, Save, SaveChanges, Shelf, Week } fr
 const TOKEN_KEY = "stash_token";
 let current: string | null = null;
 
-/** Reads the sign-in token from ?t= (then removes it from the address bar) or from storage. */
-export function takeToken(): string | null {
+/** Removes ?t= from the address bar and returns it, so a one-time link isn't left in history. */
+function takeLinkFromUrl(): string | null {
   const url = new URL(window.location.href);
-  const fromUrl = url.searchParams.get("t");
-  if (fromUrl) {
-    setToken(fromUrl);
-    url.searchParams.delete("t");
-    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
-    return fromUrl;
-  }
+  const link = url.searchParams.get("t");
+  if (!link) return null;
+  url.searchParams.delete("t");
+  window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  return link;
+}
+
+/** The stored session, if any. */
+export function storedSession(): string | null {
   try {
     current = localStorage.getItem(TOKEN_KEY);
   } catch {
     current = null;
   }
-  return current;
+  return current?.startsWith("s_") ? current : null;
+}
+
+/** Swap a one-time sign-in link for a session and keep it. */
+export async function signInWithLink(link: string): Promise<void> {
+  const { token } = await call<{ token: string; expires_at: string }>("/session", { method: "POST", body: JSON.stringify({ link }) });
+  setToken(token);
+}
+
+/**
+ * Signs in on page load: a link in ?t= wins (and replaces any older session), otherwise the stored session.
+ * Returns false when there is nothing to sign in with.
+ */
+export async function signInOnLoad(): Promise<boolean> {
+  const link = takeLinkFromUrl();
+  if (link) {
+    await signInWithLink(link);
+    return true;
+  }
+  return storedSession() !== null;
+}
+
+export async function signOut(): Promise<void> {
+  try {
+    if (current) await call("/session", { method: "DELETE" });
+  } finally {
+    setToken(null);
+  }
 }
 
 export function setToken(token: string | null) {
