@@ -135,10 +135,14 @@ class Library:
             r = changes["remind_at"]
             if r is not None:
                 try:
-                    datetime.fromisoformat(str(r).replace("Z", "+00:00"))
+                    when = datetime.fromisoformat(str(r).replace("Z", "+00:00"))
                 except ValueError:
                     raise Invalid("remind_at must be an ISO date and time, or null")
+                # Stored in UTC; a naive time is taken as UTC.
+                r = (when if when.tzinfo else when.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat(timespec="seconds")
+            # A new (or cleared) time means the reminder is due again.
             sets.append("remind_at = ?"); args.append(r)
+            sets.append("reminded_at = NULL"); sets.append("remind_channel = NULL")
         if sets:
             with self.db.tx() as c:
                 c.execute(f"UPDATE saves SET {', '.join(sets)} WHERE id = ? AND user_id = ?",

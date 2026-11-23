@@ -80,6 +80,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_seen_at TEXT,
     revoked_at   TEXT
 );
+-- Browser/phone push subscriptions (Web Push). One member can have several devices.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint    TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    last_error  TEXT
+);
 -- User-made boards (collections). A save sits on at most one board.
 CREATE TABLE IF NOT EXISTS boards (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +114,12 @@ SAVE_COLUMNS = {
     "plan_day": "TEXT",                            # ISO date the person planned it for
     "remind_at": "TEXT",                           # ISO datetime (UTC)
     "reviewed_at": "TEXT",                         # last time it was shown in Rediscover
+    "reminded_at": "TEXT",                         # when the reminder went out (NULL = still due)
+    "remind_channel": "TEXT",                      # dm | push | email | failed
+}
+# Columns added to other tables after the first release.
+EXTRA_COLUMNS = {
+    "ig_accounts": {"last_message_at": "TEXT"},     # Instagram allows bot DMs for 24 h after this
 }
 
 
@@ -117,10 +132,11 @@ class Database:
         self.path = path
         with self.connect() as c:
             c.executescript(SCHEMA)
-            have = {r["name"] for r in c.execute("PRAGMA table_info(saves)")}
-            for col, ddl in SAVE_COLUMNS.items():
-                if col not in have:
-                    c.execute(f"ALTER TABLE saves ADD COLUMN {col} {ddl}")
+            for table, cols in {"saves": SAVE_COLUMNS, **EXTRA_COLUMNS}.items():
+                have = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+                for col, ddl in cols.items():
+                    if col not in have:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
             c.execute("UPDATE saves SET category = 'Tech' WHERE category = 'Coding'")  # renamed shelf
 
     @contextmanager

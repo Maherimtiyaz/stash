@@ -48,6 +48,9 @@ class Bot:
         user = self.access.user_for_igsid(msg.sender)
         if user is None:
             return self._handle_stranger(msg)
+        # Instagram lets the bot message this person for 24 hours after this (used for reminders).
+        with self.db.tx() as c:
+            c.execute("UPDATE ig_accounts SET last_message_at = ? WHERE igsid = ?", (now(), msg.sender))
         if user["status"] != "active":
             with self.db.tx() as c:
                 self.reply(c, msg.sender, "Your Stash access is turned off. Reach out to the person who invited you.")
