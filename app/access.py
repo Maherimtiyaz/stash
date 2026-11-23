@@ -151,18 +151,26 @@ class Access:
             c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at) VALUES (?,?,?)", (igsid, user["id"], now()))
             return dict(user)
 
-    # ---------- signed links for the web pages ----------
-    def token_for(self, user_id: int) -> str:
-        sig = hmac.new(self.secret, f"user:{user_id}".encode(), hashlib.sha256).hexdigest()[:32]
-        return f"{user_id}.{sig}"
+    # ---------- signed links for the invite/welcome pages ----------
+    WELCOME_LINK_DAYS = 7
+
+    def _sign(self, payload: str) -> str:
+        return hmac.new(self.secret, payload.encode(), hashlib.sha256).hexdigest()[:32]
+
+    def token_for(self, user_id: int, days: int | None = None) -> str:
+        """Signed `user.expiry.signature` token for the welcome page. Expires after a week."""
+        exp = int((datetime.now(timezone.utc) + timedelta(days=days or self.WELCOME_LINK_DAYS)).timestamp())
+        return f"{user_id}.{exp}.{self._sign(f'user:{user_id}:{exp}')}"
 
     def user_from_token(self, token: str) -> dict | None:
         try:
-            uid_s, sig = token.split(".", 1)
-            uid = int(uid_s)
+            uid_s, exp_s, sig = token.split(".", 2)
+            uid, exp = int(uid_s), int(exp_s)
         except (ValueError, AttributeError):
             return None
-        if not hmac.compare_digest(self.token_for(uid), f"{uid}.{sig}"):
+        if not hmac.compare_digest(self._sign(f"user:{uid}:{exp}"), sig):
+            return None
+        if exp < datetime.now(timezone.utc).timestamp():
             return None
         user = self.get_user(uid)
         return user if user and user["status"] == "active" else None
