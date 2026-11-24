@@ -89,6 +89,18 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     created_at  TEXT NOT NULL,
     last_error  TEXT
 );
+-- Each upload of an Instagram export, so it can be listed and undone.
+CREATE TABLE IF NOT EXISTS imports (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL REFERENCES users(id),
+    file_name      TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL,
+    found          INTEGER NOT NULL DEFAULT 0,
+    added          INTEGER NOT NULL DEFAULT 0,
+    duplicates     INTEGER NOT NULL DEFAULT 0,
+    boards_created TEXT NOT NULL DEFAULT '[]',   -- JSON list of board ids made by this import
+    undone_at      TEXT
+);
 -- User-made boards (collections). A save sits on at most one board.
 CREATE TABLE IF NOT EXISTS boards (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +128,7 @@ SAVE_COLUMNS = {
     "reviewed_at": "TEXT",                         # last time it was shown in Rediscover
     "reminded_at": "TEXT",                         # when the reminder went out (NULL = still due)
     "remind_channel": "TEXT",                      # dm | push | email | failed
+    "import_id": "INTEGER",                        # set when the save came from an Instagram export
 }
 # Columns added to other tables after the first release.
 EXTRA_COLUMNS = {

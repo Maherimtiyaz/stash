@@ -1,9 +1,10 @@
 """JSON API for the web app. Every route needs the member's token: `Authorization: Bearer <token>`."""
 from datetime import date
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 
 from .access import Access, AccessError
+from .importer import MAX_UPLOAD, ImportProblem, apply_import, list_imports, parse_export, undo_import
 from .library import Invalid, Library, NotFound
 from .reminders import Reminders
 
@@ -55,6 +56,27 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
             return {"email": reminders.set_email(user["id"], str(body.get("email", "")))}
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    # ---- importing saves from Instagram's "Download your information" export
+    @r.post("/import")
+    async def import_export(file: UploadFile = File(...), user: dict = Depends(member)):
+        data = await file.read(MAX_UPLOAD + 1)
+        try:
+            parsed = parse_export(data, file.filename or "")
+            return apply_import(access.db, user["id"], parsed, file.filename or "export")
+        except ImportProblem as e:
+            raise HTTPException(400, str(e))
+
+    @r.get("/imports")
+    def imports(user: dict = Depends(member)):
+        return list_imports(access.db, user["id"])
+
+    @r.delete("/imports/{import_id}")
+    def undo(import_id: int, user: dict = Depends(member)):
+        try:
+            return undo_import(access.db, user["id"], import_id)
+        except ImportProblem as e:
+            raise HTTPException(404 if "exist" in str(e) else 400, str(e))
 
     # ---- reminders
     @r.get("/reminders")
