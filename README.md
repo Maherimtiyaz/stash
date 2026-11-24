@@ -105,6 +105,9 @@ All routes need `Authorization: Bearer <token>`.
 | GET | `/api/v1/plan?start=YYYY-MM-DD` | Week plan and someday pile |
 | PATCH | `/api/v1/me` | Save the email for reminders |
 | GET | `/api/v1/reminders` | Channel status and upcoming reminders |
+| POST | `/api/v1/import` | Upload Instagram's export (multipart `file`: ZIP, JSON or HTML) |
+| GET | `/api/v1/imports` | Earlier imports |
+| DELETE | `/api/v1/imports/{id}` | Undo an import |
 | POST | `/api/v1/reminders/test` | Send a test through every channel |
 | POST | `/api/v1/push/subscribe`, `/api/v1/push/unsubscribe` | Turn notifications on or off for a device |
 
@@ -116,6 +119,24 @@ All routes need `Authorization: Bearer <token>`.
 4. In the app's Webhooks settings: callback `https://<your-domain>/webhooks/instagram`, verify token = `IG_VERIFY_TOKEN`, subscribe to **messages**.
 5. While the Meta app is in **development mode**, only Instagram accounts added as testers in the app's roles can trigger webhooks. That is enough for a private beta of a few friends. For more people, submit App Review for `instagram_business_manage_messages` (Advanced Access).
 6. **First real test:** share a reel to @stash and look at the server log. Confirm the `ig_reel` attachment fields (`reel_video_id`, `title`, `url`) match `app/instagram.py`, and adjust the parser if Meta's payload differs.
+
+## Importing old saves
+
+Instagram doesn't let apps read the Saved list, but it lets people download it. **Import from Instagram** (on Home, or `/import`) walks members through it:
+
+1. Instagram → profile → ☰ → **Accounts Center** → **Your information and permissions** → **Download your information**.
+2. **Download or transfer information** → the account → **Some of your information** → tick only **Saved**.
+3. **Download to device**, date range **All time**, format **JSON** → **Create files**. Instagram emails when it's ready.
+4. Drop the ZIP into Stash.
+
+What happens (`app/importer.py`):
+- Only `saved_posts` and `saved_collections` files are read, in memory. Media and everything else in the ZIP is ignored and never stored.
+- Every saved post and reel is added with its creator and the date it was saved. Instagram **collections become piles** (an existing pile with the same name is reused).
+- The export has no captions, so shelves are guessed from the collection name and creator (a "Recipes" collection, `@goadiaries`); the rest go to **Unsorted**, where members can move them.
+- Duplicates are skipped, including links already sent to @stash. Importing the same file twice adds nothing.
+- Imports send no DMs, and each one can be **undone** (its saves and any piles it created).
+- The parser follows post links rather than one exact layout, so the current JSON format, an older one and the HTML export work. If Instagram changes the format again, `tests/test_import.py` shows the shapes it expects.
+- Limits: 50 MB per upload (refused before reading if larger), 20 MB per file inside the ZIP, 20,000 saves per import, 6 uploads a minute.
 
 ## Reminders
 
