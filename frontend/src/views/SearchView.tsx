@@ -19,7 +19,7 @@ interface Command { key: string; label: string; hint: string; run: () => void }
 
 /** Home: one big search box (direction D), your saves sorted onto shelves (Tech, Travel, Recipes, Gym…). */
 export function SearchView() {
-  const { me, openSave, version, setRemindersOpen } = useApp();
+  const { me, openSave, version, setRemindersOpen, setImportOpen } = useApp();
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [layout, setLayout] = useState<Layout>(readLayout);
@@ -99,6 +99,7 @@ export function SearchView() {
     { key: "/capsule", label: "Open the time capsule", hint: "forgotten saves", run: go("rediscover") },
     { key: "/piles", label: "Open your piles", hint: "boards", run: go("boards") },
     { key: "/plan", label: "Open this week's plan", hint: "plan", run: go("plan") },
+    { key: "/import", label: "Import old saves from Instagram", hint: "from your data download", run: () => { setQ(""); setImportOpen(true); } },
     { key: "/reminders", label: "Set up reminders", hint: "DM, notifications, email", run: () => { setQ(""); setRemindersOpen(true); } },
     { key: "/signout", label: "Sign out", hint: "", run: () => { signOut().finally(() => window.location.replace(window.location.pathname)); } },
   ];
@@ -116,6 +117,7 @@ export function SearchView() {
         <h1 className="mega"><span className="who">{first}’s</span> stash</h1>
         {c && (
           <div className="counts">
+            <button className="import-btn" onClick={() => setImportOpen(true)}>⇪ Import from Instagram</button>
             <span className="count c1"><b>{c.total}</b> saved</span>
             <span className="count c2"><b>{c.done}</b> tried</span>
             <span className="count c3"><b>{c.todo}</b> waiting</span>
@@ -186,6 +188,8 @@ export function SearchView() {
       {saves && saves.length === 0 && (
         <Empty art="📮" title="Your stash is empty">
           <p>On Instagram, tap the paper plane on any reel and send it to <b>@stash</b>. It lands on the right shelf in seconds.</p>
+          <p>Already have years of saves? Bring them all in at once.</p>
+          <button className="fat fat-ink" onClick={() => setImportOpen(true)}>⇪ Import from Instagram</button>
         </Empty>
       )}
 
