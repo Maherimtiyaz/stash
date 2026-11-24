@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, setToken, signInOnLoad, signInWithLink, signOut } from "./api";
+import { RemindersPanel } from "./components/RemindersPanel";
 import { Viewer } from "./components/Viewer";
 import { Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
@@ -53,7 +54,17 @@ export function App() {
 }
 
 function Shell() {
-  const { toastMsg, closeSave } = useApp();
+  const { toastMsg, closeSave, openSave, setRemindersOpen } = useApp();
+  // Reminder links end in ?open=<save id>: open that save, then tidy the address bar.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = Number(url.searchParams.get("open"));
+    if (id > 0) openSave(id);
+    if (url.searchParams.has("open")) {
+      url.searchParams.delete("open");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  }, [openSave]);
   const [tab, setTab] = useState<Tab>(fromHash);
   useEffect(() => {
     const on = () => setTab(fromHash());
@@ -71,6 +82,7 @@ function Shell() {
     <div className="shell">
       <header className="topbar">
         <span className="wordmark">stash<i>✦</i></span>
+        <button className="topbar-btn" onClick={() => setRemindersOpen(true)} aria-label="Reminders"><Icon name="bell" size={18} /><span>Reminders</span></button>
         <button className="signout" onClick={() => signOut().finally(() => window.location.replace(window.location.pathname))}>Sign out</button>
       </header>
       <main className="main" id="main">
@@ -87,6 +99,7 @@ function Shell() {
         ))}
       </nav>
       <Viewer />
+      <RemindersPanel />
       {toastMsg && <div className="toast" role="status" key={toastMsg}>{toastMsg}</div>}
     </div>
   );

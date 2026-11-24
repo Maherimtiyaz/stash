@@ -1,4 +1,4 @@
-import type { Board, Home, Me, ReviewAction, Save, SaveChanges, Shelf, Week } from "./types";
+import type { Board, Home, Me, ReminderSettings, ReviewAction, Save, SaveChanges, Shelf, Week } from "./types";
 
 const TOKEN_KEY = "stash_token";
 let current: string | null = null;
@@ -92,6 +92,11 @@ const json = (body: unknown) => JSON.stringify(body);
 
 export const api = {
   me: () => call<Me>("/me"),
+  setEmail: (email: string) => call<{ email: string }>("/me", { method: "PATCH", body: json({ email }) }),
+  reminders: () => call<ReminderSettings>("/reminders"),
+  testReminder: () => call<{ sent: boolean; channels: Record<string, string> }>("/reminders/test", { method: "POST" }),
+  pushSubscribe: (subscription: PushSubscriptionJSON) => call<{ ok: true }>("/push/subscribe", { method: "POST", body: json({ subscription }) }),
+  pushUnsubscribe: (endpoint: string) => call<{ ok: true }>("/push/unsubscribe", { method: "POST", body: json({ endpoint }) }),
   home: () => call<Home>("/home"),
   search: (q: string) => call<{ query: string; results: Save[] }>(`/saves?q=${encodeURIComponent(q)}`),
   save: (id: number) => call<Save>(`/saves/${id}`),

@@ -150,7 +150,8 @@ class Access:
             c.execute("UPDATE link_codes SET used_at = ? WHERE code = ?", (now(), code))
             # Re-linking replaces the user's previous Instagram account.
             c.execute("DELETE FROM ig_accounts WHERE user_id = ?", (user["id"],))
-            c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at) VALUES (?,?,?)", (igsid, user["id"], now()))
+            c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at, last_message_at) VALUES (?,?,?,?)",
+                      (igsid, user["id"], now(), now()))
             return dict(user)
 
     # ---------- signed links for the invite/welcome pages ----------

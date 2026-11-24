@@ -9,7 +9,7 @@ const SHELVES = ["Tech", "Travel", "Recipes", "Fitness", "Fashion", "Health", "M
 
 /** Opening a save: the reel large on one side, everything you can do with it on the other. */
 export function Viewer() {
-  const { openId, closeSave, boards, changed, toast, refreshBoards } = useApp();
+  const { openId, closeSave, boards, changed, toast, refreshBoards, setRemindersOpen } = useApp();
   const [save, setSave] = useState<Save | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
@@ -151,6 +151,7 @@ export function Viewer() {
                   {save.remind_at && <button className="pill ghost" onClick={() => apply({ remind_at: null }, "Nudge removed")}>Clear</button>}
                 </div>
                 {save.remind_at && <p className="meta">Nudge set for <b>{remindLabel(save.remind_at)}</b></p>}
+                <button className="link-strong small" onClick={() => setRemindersOpen(true)}>Where do reminders go?</button>
               </section>
 
               <section className="block">

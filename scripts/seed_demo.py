@@ -43,7 +43,9 @@ def main():
     uid = access.redeem_invite(inv["code"], "Priya")
     n = datetime.now(timezone.utc)
     with db.tx() as c:
-        c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at) VALUES (?,?,?)", (f"demo-{uid}", uid, n.isoformat()))
+        # As if the member just messaged @stash, so Instagram's 24-hour DM window is open.
+        c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at, last_message_at) VALUES (?,?,?,?)",
+                  (f"demo-{uid}", uid, n.isoformat(), n.isoformat()))
         boards = {}
         for name in ["Goa trip", "Weeknight food", "New flat", "Summer fits", "Job hunt"]:
             boards[name] = c.execute("INSERT INTO boards(user_id, name, created_at) VALUES (?,?,?)",

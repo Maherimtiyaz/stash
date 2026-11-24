@@ -103,6 +103,10 @@ All routes need `Authorization: Bearer <token>`.
 | GET | `/api/v1/rediscover` | Rediscover deck |
 | POST | `/api/v1/saves/{id}/review` | `{"action": "keep" | "let_go" | "later"}` |
 | GET | `/api/v1/plan?start=YYYY-MM-DD` | Week plan and someday pile |
+| PATCH | `/api/v1/me` | Save the email for reminders |
+| GET | `/api/v1/reminders` | Channel status and upcoming reminders |
+| POST | `/api/v1/reminders/test` | Send a test through every channel |
+| POST | `/api/v1/push/subscribe`, `/api/v1/push/unsubscribe` | Turn notifications on or off for a device |
 
 ## Connect real Instagram
 
@@ -112,6 +116,27 @@ All routes need `Authorization: Bearer <token>`.
 4. In the app's Webhooks settings: callback `https://<your-domain>/webhooks/instagram`, verify token = `IG_VERIFY_TOKEN`, subscribe to **messages**.
 5. While the Meta app is in **development mode**, only Instagram accounts added as testers in the app's roles can trigger webhooks. That is enough for a private beta of a few friends. For more people, submit App Review for `instagram_business_manage_messages` (Advanced Access).
 6. **First real test:** share a reel to @stash and look at the server log. Confirm the `ig_reel` attachment fields (`reel_video_id`, `title`, `url`) match `app/instagram.py`, and adjust the parser if Meta's payload differs.
+
+## Reminders
+
+Tap **Nudge me** on any save (Tonight, Saturday, Next week). When the time comes, the worker sends the reminder **once**, using the first channel that works:
+
+1. **Instagram DM**, if the member messaged @stash in the last 24 hours. Instagram doesn't allow bot messages outside that window, and Stash keeps an hour's margin.
+2. **Notifications** (Web Push) on every phone or computer where the member turned them on. On iPhone, Stash must first be added to the home screen (Share → Add to Home Screen).
+3. **Email**, if the member saved an address.
+
+DM and email links sign in once and open the save. A save already marked **tried** is skipped. The **Reminders** panel (bell in the top bar, or `/reminders`) shows each channel's state, lets members turn notifications on, save an email, send themselves a test, and see or clear upcoming reminders.
+
+Without credentials both email and notifications run in **dry-run** mode (logged, not sent). To send for real, set:
+
+| Variable | What |
+|---|---|
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | From `python scripts/make_secrets.py` |
+| `VAPID_SUBJECT` | `mailto:you@your-domain` (push services contact this if something goes wrong) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Any email provider's SMTP settings (Resend, Brevo, SendGrid, Postmark, Gmail with an app password…) |
+| `MAIL_FROM` | Sender, e.g. `Stash <reminders@your-domain>` |
+
+Notifications only work over **https**, so they start working once Stash is online.
 
 ## Security
 
@@ -124,6 +149,7 @@ All routes need `Authorization: Bearer <token>`.
 | Headers | `no-referrer` (links never leak to other sites), `nosniff`, no framing, strict Content-Security-Policy on the web app, no caching of API responses, HSTS in production. |
 | Secrets | With `APP_ENV=production` the server won't start with weak or missing secrets and lists what to fix. |
 | Admin token | Compared in constant time. Leave `ADMIN_TOKEN` empty to turn the admin panel off. |
+| Test reminders | Limited to 5 a minute, since they send real messages. |
 
 **Before going live**, generate secrets and paste them into your host's environment settings (never commit them):
 
@@ -147,7 +173,7 @@ Also set `IG_APP_SECRET` from your Meta app, `PUBLIC_BASE_URL=https://your-domai
 - Categories come from keyword rules on the caption. Next step: fetch media, transcribe, and call an LLM in `worker.understand()`.
 - SQLite + an in-process worker thread. For production: Postgres and a separate worker (Celery/RQ/arq) with the same tables.
 - Rate limits are kept in memory, so they reset on restart and don't add up across several server processes. Use Redis when running more than one.
-- Reminders are stored but not sent yet. Instagram only allows bot DMs within 24 h of the member's last message, so delivery needs email or web push.
+- Web Push subscriptions were tested with real encryption against a local endpoint, not yet on a real phone. Do that once the server is online.
 - Search scans a member's saves in Python. Fine for thousands of saves; move to SQLite FTS5 or Postgres full-text search beyond that.
 - Saves have no thumbnails yet; cards use a colour per category until media fetching exists.
 - Plan "today" uses the server's UTC date, so it can be a day off near midnight in other time zones.
