@@ -1,5 +1,6 @@
 """JSON API for the web app. Every route needs the member's token: `Authorization: Bearer <token>`."""
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 
@@ -46,16 +47,29 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.get("/me")
     def me(user: dict = Depends(member)):
-        return {"id": user["id"], "name": user["name"], "instagram_linked": bool(user["igsid"]), "email": user["email"]}
+        return {"id": user["id"], "name": user["name"], "instagram_linked": bool(user["igsid"]), "email": user["email"],
+                "timezone": user.get("timezone") or ""}
 
     @r.patch("/me")
     def update_me(body: dict = Body(...), user: dict = Depends(member)):
-        if set(body) - {"email"}:
-            raise HTTPException(400, "Only email can be changed here.")
-        try:
-            return {"email": reminders.set_email(user["id"], str(body.get("email", "")))}
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        if not body or set(body) - {"email", "timezone"}:
+            raise HTTPException(400, "Only email and timezone can be changed here.")
+        out = {}
+        if "timezone" in body:
+            name = str(body["timezone"] or "")[:64]
+            try:
+                ZoneInfo(name)
+            except Exception:  # noqa: BLE001 - unknown or malformed zone name
+                raise HTTPException(400, "That isn't a time zone name like Asia/Kolkata.")
+            with access.db.tx() as c:
+                c.execute("UPDATE users SET timezone = ? WHERE id = ?", (name, user["id"]))
+            out["timezone"] = name
+        if "email" in body:
+            try:
+                out["email"] = reminders.set_email(user["id"], str(body.get("email", "")))
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        return out
 
     # ---- importing saves from Instagram's "Download your information" export
     @r.post("/import")
