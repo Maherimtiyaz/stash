@@ -152,14 +152,23 @@ def parse(text: str, now: datetime) -> Commands:
             t = (t[:m.start()] + t[m.end():]).strip()
             break
 
-    # remind <when>; a bare "remind" means tomorrow
+    # remind <when>. "remind" alone, or "remind me to/about …", means tomorrow;
+    # "remind <a word that isn't a time>" is reported, not guessed.
     if m := re.search(rf"\bremind(?:\s+me)?(?:\s+(?:on|at))?(?:\s+(?P<when>{WHEN}))?", t, re.I):
-        when = parse_when(m.group("when") or "tomorrow", now)
+        after = t[m.end():].strip()
+        end = m.end()
+        if m.group("when"):
+            when = parse_when(m.group("when"), now)
+        elif not after or re.match(r"(?:me\s+)?(?:to|about|that)\b", after, re.I):
+            when = parse_when("tomorrow", now)
+        else:
+            when = None
+            end = m.end() + (len(t[m.end():]) - len(t[m.end():].lstrip())) + len(after.split()[0])  # drop the unreadable word
         if when:
             c.remind_at = when
         else:
             c.problems.append("remind")
-        t = (t[:m.start()] + t[m.end():]).strip()
+        t = (t[:m.start()] + t[end:]).strip()
 
     # plan <day>
     if m := re.search(rf"\bplan(?:\s+it)?(?:\s+(?:for|on))?\s+(?P<when>{WHEN})", t, re.I):

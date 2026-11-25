@@ -70,8 +70,11 @@ def test_single_commands(text, field, value):
 def test_things_that_are_not_commands():
     assert parse("in goa next month", NOW).shelf is None              # "goa" isn't a shelf
     assert parse("#1 recipe ever", NOW).pile is None                  # tags start with a letter
-    c = parse("remind me to buy chillies", NOW)                        # bare remind → tomorrow, rest is a note
+    c = parse("remind me to buy chillies", NOW)                        # "remind me to …" → tomorrow, rest is a note
     assert c.remind_at == at(2026, 11, 26, 10, 0) and c.note == "to buy chillies"
+    c = parse("remind someday", NOW)                                   # not a time: reported, not guessed
+    assert c.remind_at is None and c.problems == ["remind"] and c.note == ""
+    assert parse("remind", NOW).remind_at == at(2026, 11, 26, 10, 0)
 
 
 # ---------------------------------------------------------------- through the bot
