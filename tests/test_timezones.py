@@ -91,3 +91,12 @@ def test_capsule_later_is_saturday_morning_locally(app_at, moment, expected):
     sid = client.get("/api/v1/saves").json()["results"][0]["id"]
     assert client.post(f"/api/v1/saves/{sid}/review", json={"action": "later"}).json()["remind_at"] == expected
 
+
+def test_device_time_zone_header_is_used_at_once_and_remembered(app_at):
+    at, _ = app_at
+    client = at(utc(2026, 11, 25, 20, 0), "UTC")
+    week = client.get("/api/v1/plan", headers={"X-Timezone": "Asia/Kolkata"}).json()
+    assert week["today"] == "2026-11-26"                                   # used on this very request
+    assert client.get("/api/v1/me").json()["timezone"] == "Asia/Kolkata"   # and stored for DMs/reminders
+    client.get("/api/v1/plan", headers={"X-Timezone": "Not/AZone"})       # junk is ignored
+    assert client.get("/api/v1/me").json()["timezone"] == "Asia/Kolkata"

@@ -33,9 +33,6 @@ export function App() {
       .then((m) => {
         setMe(m);
         setState("ready");
-        // So "remind sat" in a DM means Saturday on this person's clock.
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (tz && tz !== m.timezone) api.setTimezone(tz).catch(() => undefined);
       })
       .catch((e: Error) => {
         if (e instanceof ApiError && e.status === 401) {
