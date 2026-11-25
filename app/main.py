@@ -39,7 +39,8 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     library = Library(db)
     dist = Path(s.frontend_dist) if s.frontend_dist else None
     has_frontend = bool(dist and (dist / "index.html").is_file())
-    bot = Bot(db, access, s.public_base_url, s.ig_username, app_path="/app" if has_frontend else "/library")
+    bot = Bot(db, access, s.public_base_url, s.ig_username, app_path="/app" if has_frontend else "/library",
+              library=library, default_tz=s.default_timezone)
     if messenger is None:
         messenger = DryRunMessenger() if s.dry_run else GraphMessenger(s.access_token, s.graph_version)
     if mailer is None:
@@ -49,7 +50,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
         pusher = WebPusher(s.vapid_private_key, s.vapid_subject) if s.vapid_private_key else DryRunPusher()
     reminders = Reminders(db, access, mailer, pusher, s.public_base_url, has_frontend)
     reminders.public_key = s.vapid_public_key
-    worker = Worker(db, messenger, reminders=reminders)
+    worker = Worker(db, messenger, reminders=reminders, default_tz=s.default_timezone)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
