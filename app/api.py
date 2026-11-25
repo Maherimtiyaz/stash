@@ -117,7 +117,7 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.get("/home")
     def home(user: dict = Depends(member)):
-        return library.home(user["id"])
+        return library.home(user["id"], user.get("timezone"))
 
     @r.get("/saves")
     def saves(q: str = Query("", max_length=200), user: dict = Depends(member)):
@@ -166,7 +166,7 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.post("/saves/{save_id}/review")
     def review(save_id: int, body: dict = Body(...), user: dict = Depends(member)):
-        return run(library.review, user["id"], save_id, str(body.get("action", "")), body.get("remind_at"))
+        return run(library.review, user["id"], save_id, str(body.get("action", "")), body.get("remind_at"), user.get("timezone"))
 
     @r.get("/plan")
     def plan(start: str | None = Query(None), user: dict = Depends(member)):
@@ -174,6 +174,6 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
             d = date.fromisoformat(start) if start else None
         except ValueError:
             raise HTTPException(400, "start must be a date like 2026-11-23")
-        return library.plan(user["id"], d)
+        return library.plan(user["id"], d, user.get("timezone"))
 
     return r
