@@ -17,6 +17,7 @@ class Settings:
     worker_enabled: bool = True
     link_code_minutes: int = 30
     frontend_dist: str = ""     # folder with the built web app; empty disables /app
+    default_timezone: str = "UTC"  # until a member's phone/browser tells us theirs (e.g. Asia/Kolkata)
     app_env: str = "development"   # "production" turns on strict checks and HSTS
     rate_limits: bool = True
     trust_proxy: bool = False      # read the visitor's IP from X-Forwarded-For (only behind your own proxy)
@@ -57,6 +58,7 @@ class Settings:
             worker_enabled=e("WORKER_ENABLED", "1") == "1",
             frontend_dist=e("FRONTEND_DIST", str(Path(__file__).resolve().parents[1] / "frontend" / "dist")),
             app_env=e("APP_ENV", "development").strip().lower(),
+            default_timezone=e("DEFAULT_TIMEZONE", "UTC"),
             rate_limits=e("RATE_LIMITS", "1") == "1",
             trust_proxy=e("TRUST_PROXY", "0") == "1",
             smtp_host=e("SMTP_HOST", ""),

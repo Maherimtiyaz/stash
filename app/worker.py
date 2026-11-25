@@ -8,7 +8,11 @@ import logging
 import threading
 import time
 
+from datetime import date
+
 from .categories import UNSORTED, guess
+from .commands import day_label, shelf_label, tz_for, when_label
+from .reminders import parse_when as parse_when_utc
 from .db import Database, now
 from .instagram import Messenger
 
@@ -20,10 +24,11 @@ def understand(caption: str, url: str) -> tuple[str, list[str]]:
 
 
 class Worker:
-    def __init__(self, db: Database, messenger: Messenger, max_send_attempts: int = 5, reminders=None):
+    def __init__(self, db: Database, messenger: Messenger, max_send_attempts: int = 5, reminders=None, default_tz: str = "UTC"):
         self.db = db
         self.messenger = messenger
         self.reminders = reminders
+        self.default_tz = default_tz
         self.max_attempts = max_send_attempts
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -31,24 +36,43 @@ class Worker:
     def process_saves(self, limit: int = 20) -> int:
         with self.db.connect() as c:
             rows = c.execute(
-                "SELECT s.*, a.igsid FROM saves s JOIN ig_accounts a ON a.user_id = s.user_id "
-                "WHERE s.status = 'queued' ORDER BY s.id LIMIT ?", (limit,)
+                "SELECT s.*, a.igsid, u.timezone, b.name AS board_name FROM saves s "
+                "JOIN ig_accounts a ON a.user_id = s.user_id JOIN users u ON u.id = s.user_id "
+                "LEFT JOIN boards b ON b.id = s.board_id WHERE s.status = 'queued' ORDER BY s.id LIMIT ?", (limit,)
             ).fetchall()
         for r in rows:
             try:
-                category, tags = understand(r["caption"], r["url"])
+                guessed, tags = understand(r["caption"], r["url"])
+                category = r["category"] or guessed      # a shelf chosen by DM command wins over the guess
                 with self.db.tx() as c:
                     c.execute(
                         "UPDATE saves SET category = ?, tags = ?, status = 'done', processed_at = ? WHERE id = ?",
                         (category, ",".join(tags), now(), r["id"]),
                     )
-                    text = f"Saved to {category} ✓" if category != UNSORTED else "Saved ✓ (couldn't pick a category yet)"
-                    c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)", (r["igsid"], text, now()))
+                    c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)",
+                              (r["igsid"], self._saved_text(r, category), now()))
             except Exception:
                 log.exception("processing save %s failed", r["id"])
                 with self.db.tx() as c:
                     c.execute("UPDATE saves SET status = 'failed' WHERE id = ?", (r["id"],))
         return len(rows)
+
+    def _saved_text(self, r, category: str) -> str:
+        """'Saved to Recipes ✓ · pile “Goa trip” · reminder Sat 28 Nov, 10:00'"""
+        head = f"Saved to {shelf_label(category)} ✓" if category != UNSORTED else "Saved ✓ (couldn't pick a shelf yet)"
+        tz = tz_for(r["timezone"], self.default_tz)
+        extras = []
+        if r["board_name"]:
+            extras.append(f"pile “{r['board_name']}”")
+        if r["remind_at"] and (when := parse_when_utc(r["remind_at"])):
+            extras.append(f"reminder {when_label(when, tz)}")
+        if r["plan_day"]:
+            extras.append(f"planned for {day_label(date.fromisoformat(r['plan_day']))}")
+        if r["progress"] == "done":
+            extras.append("marked tried")
+        if r["note"]:
+            extras.append("note saved")
+        return " · ".join([head, *extras])
 
     def flush_outbox(self, limit: int = 50) -> int:
         with self.db.connect() as c:

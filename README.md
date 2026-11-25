@@ -103,7 +103,7 @@ All routes need `Authorization: Bearer <token>`.
 | GET | `/api/v1/rediscover` | Rediscover deck |
 | POST | `/api/v1/saves/{id}/review` | `{"action": "keep" | "let_go" | "later"}` |
 | GET | `/api/v1/plan?start=YYYY-MM-DD` | Week plan and someday pile |
-| PATCH | `/api/v1/me` | Save the email for reminders |
+| PATCH | `/api/v1/me` | Save the email for reminders and the time zone |
 | GET | `/api/v1/reminders` | Channel status and upcoming reminders |
 | POST | `/api/v1/import` | Upload Instagram's export (multipart `file`: ZIP, JSON or HTML) |
 | GET | `/api/v1/imports` | Earlier imports |
@@ -119,6 +119,23 @@ All routes need `Authorization: Bearer <token>`.
 4. In the app's Webhooks settings: callback `https://<your-domain>/webhooks/instagram`, verify token = `IG_VERIFY_TOKEN`, subscribe to **messages**.
 5. While the Meta app is in **development mode**, only Instagram accounts added as testers in the app's roles can trigger webhooks. That is enough for a private beta of a few friends. For more people, submit App Review for `instagram_business_manage_messages` (Advanced Access).
 6. **First real test:** share a reel to @stash and look at the server log. Confirm the `ig_reel` attachment fields (`reel_video_id`, `title`, `url`) match `app/instagram.py`, and adjust the parser if Meta's payload differs.
+
+## Commands in Instagram DMs
+
+Type these to @stash in the same message as a reel, or right after it (Instagram often sends the reel and the text as two messages; follow-ups apply to the save from the last 15 minutes):
+
+| Type | Does |
+|---|---|
+| `#goa-trip` | Puts it on the pile "Goa trip" (`#goatrip` and "Goa trip" match too), or makes the pile |
+| `shelf gym`, `shelf:tech`, `in recipes` | Picks the shelf; the automatic guess won't override it |
+| `remind sat 7pm` | Reminder. Also: `tonight`, `tomorrow`, `weekend`, `next week`, `in 3 days`, `in 2 hours`, `25 dec`, `25/12`, `at 7` |
+| `plan tue` | Plans it for a day (same day words as above) |
+| `done` / `skip` | Marks it tried / not for me |
+| `note: book 2 days ahead` | Keeps a note. Other text sent with a reel is kept as its note too |
+| `find pasta` | On its own: replies with the 3 best matches and links |
+| `help` | Lists all of this |
+
+Combine freely: `#goa-trip remind sat 7pm note: 3rd café has the view`. The reply says what happened: `Saved to Travel ✓ · pile “Goa trip” · reminder Sat 28 Nov, 19:00 · note saved`. Re-sending a saved reel with commands updates it. Times are read in the member's time zone, which the web app reports from the device (`DEFAULT_TIMEZONE` until then). An unreadable time gets a reply with examples instead of a guess. Parsing is plain keyword rules in `app/commands.py`.
 
 ## Importing old saves
 

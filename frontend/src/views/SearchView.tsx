@@ -237,6 +237,7 @@ export function SearchView() {
           ) : (
             <div className="wall">{saves.map((s) => <Reel key={s.id} save={s} onOpen={() => openSave(s.id)} />)}</div>
           )}
+          <p className="foot-tip dm-tip">In Instagram, type with a reel to @stash: <code>#goa-trip</code> <code>shelf gym</code> <code>remind sat 7pm</code> <code>plan tue</code> <code>done</code> or <code>find pasta</code>. Send <code>help</code> for the full list.</p>
         </>
       )}
     </section>

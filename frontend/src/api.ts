@@ -94,6 +94,7 @@ const json = (body: unknown) => JSON.stringify(body);
 export const api = {
   me: () => call<Me>("/me"),
   setEmail: (email: string) => call<{ email: string }>("/me", { method: "PATCH", body: json({ email }) }),
+  setTimezone: (timezone: string) => call<{ timezone: string }>("/me", { method: "PATCH", body: json({ timezone }) }),
   reminders: () => call<ReminderSettings>("/reminders"),
   importExport: (file: File) => {
     const form = new FormData();

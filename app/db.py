@@ -133,6 +133,7 @@ SAVE_COLUMNS = {
 # Columns added to other tables after the first release.
 EXTRA_COLUMNS = {
     "ig_accounts": {"last_message_at": "TEXT"},     # Instagram allows bot DMs for 24 h after this
+    "users": {"timezone": "TEXT NOT NULL DEFAULT ''"},  # IANA name from the web app, e.g. Asia/Kolkata
 }
 
 
