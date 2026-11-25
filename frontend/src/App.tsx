@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, setToken, signInOnLoad, signInWithLink, signOut } from "./api";
+import { ImportPanel } from "./components/ImportPanel";
 import { RemindersPanel } from "./components/RemindersPanel";
 import { Viewer } from "./components/Viewer";
 import { Icon, Spinner, type IconName } from "./components/ui";
@@ -100,6 +101,7 @@ function Shell() {
       </nav>
       <Viewer />
       <RemindersPanel />
+      <ImportPanel />
       {toastMsg && <div className="toast" role="status" key={toastMsg}>{toastMsg}</div>}
     </div>
   );

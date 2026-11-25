@@ -1,4 +1,4 @@
-import type { Board, Home, Me, ReminderSettings, ReviewAction, Save, SaveChanges, Shelf, Week } from "./types";
+import type { Board, Home, ImportRecord, ImportSummary, Me, ReminderSettings, ReviewAction, Save, SaveChanges, Shelf, Week } from "./types";
 
 const TOKEN_KEY = "stash_token";
 let current: string | null = null;
@@ -70,7 +70,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      // FormData sets its own multipart Content-Type.
+      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(current ? { Authorization: `Bearer ${current}` } : {}),
       ...init.headers,
     },
@@ -94,6 +95,13 @@ export const api = {
   me: () => call<Me>("/me"),
   setEmail: (email: string) => call<{ email: string }>("/me", { method: "PATCH", body: json({ email }) }),
   reminders: () => call<ReminderSettings>("/reminders"),
+  importExport: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return call<ImportSummary>("/import", { method: "POST", body: form });
+  },
+  imports: () => call<ImportRecord[]>("/imports"),
+  undoImport: (id: number) => call<{ removed: number; piles_removed: number }>(`/imports/${id}`, { method: "DELETE" }),
   testReminder: () => call<{ sent: boolean; channels: Record<string, string> }>("/reminders/test", { method: "POST" }),
   pushSubscribe: (subscription: PushSubscriptionJSON) => call<{ ok: true }>("/push/subscribe", { method: "POST", body: json({ subscription }) }),
   pushUnsubscribe: (endpoint: string) => call<{ ok: true }>("/push/unsubscribe", { method: "POST", body: json({ endpoint }) }),

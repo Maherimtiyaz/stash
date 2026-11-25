@@ -15,6 +15,7 @@ RULES: list[tuple[str, re.Pattern, int]] = [
     ("POST", re.compile(r"^/api/v1/session$"), 10),     # swapping sign-in links
     ("POST", re.compile(r"^/i/[^/]+$"), 10),            # accepting invites
     ("POST", re.compile(r"^/api/v1/reminders/test$"), 5),  # sends real messages
+    ("POST", re.compile(r"^/api/v1/import$"), 6),           # big uploads
     ("*", re.compile(r"^/api/admin/"), 60),             # admin API (also slows token guessing)
     ("*", re.compile(r"^/(i/[^/]+|welcome|library|api/me)$"), 60),
     ("*", re.compile(r"^/api/v1/"), 300),               # the web app
@@ -68,6 +69,12 @@ def install(app: FastAPI, s: Settings) -> None:
     @app.middleware("http")
     async def guard(request: Request, call_next):
         path, method = request.url.path, request.method
+        # Refuse oversized bodies before reading them: 60 MB for export uploads, 1 MB elsewhere.
+        limit = 60 * 1024 * 1024 if path == "/api/v1/import" else 1024 * 1024
+        length = request.headers.get("content-length", "")
+        if length.isdigit() and int(length) > limit:
+            return JSONResponse({"detail": "That file is too big. In Instagram's download screen, choose only “Saved”."
+                                 if path == "/api/v1/import" else "Request too large."}, status_code=413)
         if s.rate_limits:
             for m, pattern, limit in RULES:
                 if (m == "*" or m == method) and pattern.match(path):

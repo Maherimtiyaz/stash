@@ -61,3 +61,23 @@ export interface Week {
 
 export type SaveChanges = Partial<Pick<Save, "progress" | "note" | "board_id" | "plan_day" | "remind_at" | "category">>;
 export type ReviewAction = "keep" | "let_go" | "later";
+
+export interface ImportSummary {
+  id: number;
+  found: number;
+  added: number;
+  duplicates: number;
+  put_on_piles: number;
+  piles_created: string[];
+  shelves: Record<string, number>;
+}
+
+export interface ImportRecord {
+  id: number;
+  file_name: string;
+  created_at: string;
+  found: number;
+  added: number;
+  duplicates: number;
+  undone_at: string | null;
+}
