@@ -135,7 +135,7 @@ Type these to @stash in the same message as a reel, or right after it (Instagram
 | `find pasta` | On its own: replies with the 3 best matches and links |
 | `help` | Lists all of this |
 
-Combine freely: `#goa-trip remind sat 7pm note: 3rd café has the view`. The reply says what happened: `Saved to Travel ✓ · pile “Goa trip” · reminder Sat 28 Nov, 19:00 · note saved`. Re-sending a saved reel with commands updates it. Times are read in the member's time zone, which the web app reports from the device (`DEFAULT_TIMEZONE` until then). An unreadable time gets a reply with examples instead of a guess. Parsing is plain keyword rules in `app/commands.py`.
+Combine freely: `#goa-trip remind sat 7pm note: 3rd café has the view`. The reply says what happened: `Saved to Travel ✓ · pile “Goa trip” · reminder Sat 28 Nov, 19:00 · note saved`. Re-sending a saved reel with commands updates it. Times are read in the member's time zone, which the web app sends with every request (`X-Timezone`) and the server remembers for DMs and reminders (`DEFAULT_TIMEZONE` until then). An unreadable time gets a reply with examples instead of a guess. Parsing is plain keyword rules in `app/commands.py`.
 
 ## Importing old saves
 
@@ -176,6 +176,10 @@ Without credentials both email and notifications run in **dry-run** mode (logged
 
 Notifications only work over **https**, so they start working once Stash is online.
 
+## Time zones
+
+The server runs on UTC, but everything calendar-based follows the member's own clock: Plan's "today" and week, **On this day**, Capsule's **Later** (Saturday 10:00 their time), and times in DM commands and replies. The app sends the device's time zone with each request, so it's right on the first visit and after travel. Reminders are stored and sent as exact UTC moments, so they fire at the right time wherever the member is.
+
 ## Security
 
 | Protection | How |
@@ -214,4 +218,3 @@ Also set `IG_APP_SECRET` from your Meta app, `PUBLIC_BASE_URL=https://your-domai
 - Web Push subscriptions were tested with real encryption against a local endpoint, not yet on a real phone. Do that once the server is online.
 - Search scans a member's saves in Python. Fine for thousands of saves; move to SQLite FTS5 or Postgres full-text search beyond that.
 - Saves have no thumbnails yet; cards use a colour per category until media fetching exists.
-- Plan "today" uses the server's UTC date, so it can be a day off near midnight in other time zones.

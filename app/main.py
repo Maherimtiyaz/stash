@@ -36,7 +36,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
         log.warning("Not safe for a live server: %s", p)
     db = Database(s.db_path)
     access = Access(db, s.secret_key, s.link_code_minutes)
-    library = Library(db)
+    library = Library(db, default_tz=s.default_timezone)
     dist = Path(s.frontend_dist) if s.frontend_dist else None
     has_frontend = bool(dist and (dist / "index.html").is_file())
     bot = Bot(db, access, s.public_base_url, s.ig_username, app_path="/app" if has_frontend else "/library",
@@ -65,6 +65,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     app.state.bot, app.state.worker, app.state.messenger = bot, worker, messenger
     security.install(app, s)
     app.state.reminders, app.state.mailer, app.state.pusher = reminders, mailer, pusher
+    app.state.library = library
     app.include_router(build_router(access, library, reminders))
 
     # ------------------------------------------------------------------ Meta webhook

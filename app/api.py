@@ -12,16 +12,31 @@ from .reminders import Reminders
 EDITABLE = {"progress", "note", "board_id", "plan_day", "remind_at", "category"}
 
 
+def valid_tz(name: str) -> bool:
+    try:
+        ZoneInfo(name)
+        return True
+    except Exception:  # noqa: BLE001 - unknown or malformed zone name
+        return False
+
+
 def build_router(access: Access, library: Library, reminders: Reminders) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
 
     def bearer(authorization: str = Header("")) -> str:
         return authorization.removeprefix("Bearer ").strip()
 
-    def member(token: str = Depends(bearer)) -> dict:
+    def member(token: str = Depends(bearer), x_timezone: str = Header("")) -> dict:
         user = access.user_from_session(token)
         if not user:
             raise HTTPException(401, "You're signed out. Send LIBRARY to @stash on Instagram for a sign-in link.")
+        # The app sends the device's time zone with every request: use it at once (first visit, travel)
+        # and remember it for DMs and reminders. Unknown names are ignored.
+        tz = x_timezone.strip()[:64]
+        if tz and tz != user.get("timezone") and valid_tz(tz):
+            with access.db.tx() as c:
+                c.execute("UPDATE users SET timezone = ? WHERE id = ?", (tz, user["id"]))
+            user["timezone"] = tz
         return user
 
     @r.post("/session")
@@ -117,7 +132,7 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.get("/home")
     def home(user: dict = Depends(member)):
-        return library.home(user["id"])
+        return library.home(user["id"], user.get("timezone"))
 
     @r.get("/saves")
     def saves(q: str = Query("", max_length=200), user: dict = Depends(member)):
@@ -166,7 +181,7 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.post("/saves/{save_id}/review")
     def review(save_id: int, body: dict = Body(...), user: dict = Depends(member)):
-        return run(library.review, user["id"], save_id, str(body.get("action", "")), body.get("remind_at"))
+        return run(library.review, user["id"], save_id, str(body.get("action", "")), body.get("remind_at"), user.get("timezone"))
 
     @r.get("/plan")
     def plan(start: str | None = Query(None), user: dict = Depends(member)):
@@ -174,6 +189,6 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
             d = date.fromisoformat(start) if start else None
         except ValueError:
             raise HTTPException(400, "start must be a date like 2026-11-23")
-        return library.plan(user["id"], d)
+        return library.plan(user["id"], d, user.get("timezone"))
 
     return r

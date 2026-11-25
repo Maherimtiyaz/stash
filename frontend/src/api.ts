@@ -2,6 +2,13 @@ import type { Board, Home, ImportRecord, ImportSummary, Me, ReminderSettings, Re
 
 const TOKEN_KEY = "stash_token";
 let current: string | null = null;
+const DEVICE_TZ = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+})();
 
 /** Removes ?t= from the address bar and returns it, so a one-time link isn't left in history. */
 function takeLinkFromUrl(): string | null {
@@ -73,6 +80,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
       // FormData sets its own multipart Content-Type.
       ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(current ? { Authorization: `Bearer ${current}` } : {}),
+      // So "today", "On this day" and "Saturday" follow this device's clock, even on the first visit or abroad.
+      "X-Timezone": DEVICE_TZ,
       ...init.headers,
     },
   });
@@ -94,7 +103,6 @@ const json = (body: unknown) => JSON.stringify(body);
 export const api = {
   me: () => call<Me>("/me"),
   setEmail: (email: string) => call<{ email: string }>("/me", { method: "PATCH", body: json({ email }) }),
-  setTimezone: (timezone: string) => call<{ timezone: string }>("/me", { method: "PATCH", body: json({ timezone }) }),
   reminders: () => call<ReminderSettings>("/reminders"),
   importExport: (file: File) => {
     const form = new FormData();
