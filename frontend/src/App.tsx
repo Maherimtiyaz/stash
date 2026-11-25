@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ApiError, api, setToken, takeToken } from "./api";
+import { ApiError, api, setToken, signInOnLoad, signInWithLink, signOut } from "./api";
+import { RemindersPanel } from "./components/RemindersPanel";
 import { Viewer } from "./components/Viewer";
 import { Icon, Spinner, type IconName } from "./components/ui";
 import { AppProvider, useApp } from "./store";
@@ -23,14 +24,16 @@ export function App() {
   const [state, setState] = useState<"loading" | "signed-out" | "ready" | "error">("loading");
   const [error, setError] = useState("");
 
+  const [notice, setNotice] = useState("");
   const signIn = () => {
-    if (!takeToken()) return setState("signed-out");
     setState("loading");
-    api.me()
+    signInOnLoad()
+      .then((ok) => (ok ? api.me() : Promise.reject(new ApiError(401, ""))))
       .then((m) => (setMe(m), setState("ready")))
       .catch((e: Error) => {
         if (e instanceof ApiError && e.status === 401) {
           setToken(null);
+          setNotice(e.message);
           setState("signed-out");
         } else {
           setError(e.message);
@@ -42,7 +45,7 @@ export function App() {
 
   if (state === "loading") return <div className="center"><Spinner /></div>;
   if (state === "error") return <div className="center"><p className="error">{error}</p><button className="btn" onClick={signIn}>Try again</button></div>;
-  if (state === "signed-out" || !me) return <SignIn onDone={signIn} />;
+  if (state === "signed-out" || !me) return <SignIn onDone={signIn} notice={notice} />;
   return (
     <AppProvider me={me}>
       <Shell />
@@ -51,7 +54,17 @@ export function App() {
 }
 
 function Shell() {
-  const { toastMsg, closeSave } = useApp();
+  const { toastMsg, closeSave, openSave, setRemindersOpen } = useApp();
+  // Reminder links end in ?open=<save id>: open that save, then tidy the address bar.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = Number(url.searchParams.get("open"));
+    if (id > 0) openSave(id);
+    if (url.searchParams.has("open")) {
+      url.searchParams.delete("open");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  }, [openSave]);
   const [tab, setTab] = useState<Tab>(fromHash);
   useEffect(() => {
     const on = () => setTab(fromHash());
@@ -69,7 +82,8 @@ function Shell() {
     <div className="shell">
       <header className="topbar">
         <span className="wordmark">stash<i>✦</i></span>
-        <button className="signout" onClick={() => { setToken(null); window.location.reload(); }}>Sign out</button>
+        <button className="topbar-btn" onClick={() => setRemindersOpen(true)} aria-label="Reminders"><Icon name="bell" size={18} /><span>Reminders</span></button>
+        <button className="signout" onClick={() => signOut().finally(() => window.location.replace(window.location.pathname))}>Sign out</button>
       </header>
       <main className="main" id="main">
         {tab === "search" && <SearchView />}
@@ -85,31 +99,41 @@ function Shell() {
         ))}
       </nav>
       <Viewer />
+      <RemindersPanel />
       {toastMsg && <div className="toast" role="status" key={toastMsg}>{toastMsg}</div>}
     </div>
   );
 }
 
-function SignIn({ onDone }: { onDone: () => void }) {
+function SignIn({ onDone, notice }: { onDone: () => void; notice: string }) {
   const [link, setLink] = useState("");
   const [err, setErr] = useState("");
-  const submit = () => {
-    const m = link.match(/[?&]t=([^&#\s]+)/) ?? link.trim().match(/^(\d+\.[a-f0-9]{16,})$/);
-    if (!m) return setErr("That doesn't look like a Stash link. It contains ?t= followed by a code.");
-    setToken(decodeURIComponent(m[1]));
-    onDone();
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const m = link.match(/[?&]t=([^&#\s]+)/) ?? link.trim().match(/^(l_[\w-]{16,})$/);
+    if (!m) return setErr("That doesn't look like a Stash sign-in link. It contains ?t= followed by a code.");
+    setBusy(true);
+    try {
+      await signInWithLink(decodeURIComponent(m[1]));
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <div className="signin">
       <div className="signin-card">
         <span className="wordmark big">stash<i>✦</i></span>
         <h1>Your saves,<br />finally findable.</h1>
-        <p>Stash signs you in with the private link <b>@stash</b> sent you on Instagram. Tap that link, or send <code>LIBRARY</code> to @stash for a fresh one.</p>
+        {notice && <p className="notice" role="alert">{notice}</p>}
+        <p>Stash signs you in with the private link <b>@stash</b> sends you on Instagram. Each link works once, for 24 hours. Send <code>LIBRARY</code> to @stash for a fresh one.</p>
         <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
           <label htmlFor="link">Or paste your link</label>
           <input id="link" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…/app/?t=…" autoComplete="off" />
           {err && <p className="error">{err}</p>}
-          <button className="fat fat-ink" type="submit" disabled={!link.trim()}>Open my stash</button>
+          <button className="fat fat-ink" type="submit" disabled={!link.trim() || busy}>{busy ? "Signing in…" : "Open my stash"}</button>
         </form>
         <p className="meta">No account? Stash is invite-only. Ask whoever told you about it for an invite.</p>
       </div>

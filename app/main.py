@@ -1,4 +1,6 @@
+import hmac
 import json
+import mimetypes
 import logging
 from contextlib import asynccontextmanager
 
@@ -13,15 +15,25 @@ from .bot import Bot
 from .config import Settings
 from .db import Database, now
 from .library import Library
+from .reminders import DryRunMailer, DryRunPusher, Mailer, Pusher, Reminders, SmtpMailer, WebPusher
+from . import security
 from .instagram import DryRunMessenger, GraphMessenger, Messenger, parse_webhook, verify_signature
 from .worker import Worker
 
 log = logging.getLogger("stash")
+mimetypes.add_type("application/manifest+json", ".webmanifest")  # the web app's install manifest
 
 
-def create_app(settings: Settings | None = None, messenger: Messenger | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, messenger: Messenger | None = None,
+               mailer: Mailer | None = None, pusher: Pusher | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     s = settings or Settings.from_env()
+    problems = security.secret_problems(s)
+    if problems and s.is_production:
+        raise RuntimeError("Refusing to start in production:\n- " + "\n- ".join(problems)
+                           + "\nRun: python scripts/make_secrets.py")
+    for p in problems:
+        log.warning("Not safe for a live server: %s", p)
     db = Database(s.db_path)
     access = Access(db, s.secret_key, s.link_code_minutes)
     library = Library(db)
@@ -30,7 +42,14 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     bot = Bot(db, access, s.public_base_url, s.ig_username, app_path="/app" if has_frontend else "/library")
     if messenger is None:
         messenger = DryRunMessenger() if s.dry_run else GraphMessenger(s.access_token, s.graph_version)
-    worker = Worker(db, messenger)
+    if mailer is None:
+        mailer = (SmtpMailer(s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_password, s.mail_from or s.smtp_user, s.smtp_starttls)
+                  if s.smtp_host else DryRunMailer())
+    if pusher is None:
+        pusher = WebPusher(s.vapid_private_key, s.vapid_subject) if s.vapid_private_key else DryRunPusher()
+    reminders = Reminders(db, access, mailer, pusher, s.public_base_url, has_frontend)
+    reminders.public_key = s.vapid_public_key
+    worker = Worker(db, messenger, reminders=reminders)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -43,7 +62,9 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     app = FastAPI(title="Stash DM backend", lifespan=lifespan)
     app.state.settings, app.state.db, app.state.access = s, db, access
     app.state.bot, app.state.worker, app.state.messenger = bot, worker, messenger
-    app.include_router(build_router(access, library))
+    security.install(app, s)
+    app.state.reminders, app.state.mailer, app.state.pusher = reminders, mailer, pusher
+    app.include_router(build_router(access, library, reminders))
 
     # ------------------------------------------------------------------ Meta webhook
     @app.get("/webhooks/instagram")
@@ -115,7 +136,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
     @app.get("/library", response_class=HTMLResponse)
     def library_page(t: str = Query(""), user: dict = Depends(member)):
         if has_frontend:
-            return RedirectResponse(f"/app/?t={t}", status_code=302)
+            return RedirectResponse(f"/app/?t={access.create_login_link(user['id'])}", status_code=302)
         with db.connect() as c:
             saves = [dict(r) for r in c.execute(
                 "SELECT * FROM saves WHERE user_id = ? ORDER BY created_at DESC", (user["id"],))]
@@ -123,7 +144,7 @@ def create_app(settings: Settings | None = None, messenger: Messenger | None = N
 
     # ------------------------------------------------------------------ admin
     def admin(authorization: str = Header("")):
-        if not s.admin_token or authorization != f"Bearer {s.admin_token}":
+        if not s.admin_token or not hmac.compare_digest(authorization.encode(), f"Bearer {s.admin_token}".encode()):
             raise HTTPException(401, "admin token required")
 
     def with_url(inv: dict) -> dict:

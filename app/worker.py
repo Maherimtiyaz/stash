@@ -20,9 +20,10 @@ def understand(caption: str, url: str) -> tuple[str, list[str]]:
 
 
 class Worker:
-    def __init__(self, db: Database, messenger: Messenger, max_send_attempts: int = 5):
+    def __init__(self, db: Database, messenger: Messenger, max_send_attempts: int = 5, reminders=None):
         self.db = db
         self.messenger = messenger
+        self.reminders = reminders
         self.max_attempts = max_send_attempts
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -73,7 +74,9 @@ class Worker:
 
     def tick(self) -> None:
         self.process_saves()
-        self.flush_outbox()
+        if self.reminders:
+            self.reminders.process_due()
+        self.flush_outbox()  # after reminders, so reminder DMs go out in the same tick
 
     def start(self, interval: float = 1.0) -> None:
         def loop():

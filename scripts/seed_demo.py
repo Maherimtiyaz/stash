@@ -1,6 +1,7 @@
 """Fill a local database with a demo member, boards and sample saves, then print a sign-in link.
 
-    DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py
+    DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py            # one link
+    DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py --links 3  # several (each works once)
 
 Only for local development. The saves are made-up examples.
 """
@@ -42,7 +43,9 @@ def main():
     uid = access.redeem_invite(inv["code"], "Priya")
     n = datetime.now(timezone.utc)
     with db.tx() as c:
-        c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at) VALUES (?,?,?)", (f"demo-{uid}", uid, n.isoformat()))
+        # As if the member just messaged @stash, so Instagram's 24-hour DM window is open.
+        c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at, last_message_at) VALUES (?,?,?,?)",
+                  (f"demo-{uid}", uid, n.isoformat(), n.isoformat()))
         boards = {}
         for name in ["Goa trip", "Weeknight food", "New flat", "Summer fits", "Job hunt"]:
             boards[name] = c.execute("INSERT INTO boards(user_id, name, created_at) VALUES (?,?,?)",
@@ -56,8 +59,10 @@ def main():
                  prog, note, boards.get(board), when.isoformat(timespec="seconds"), when.isoformat(timespec="seconds")),
             )
     base = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
-    print(f"Demo member 'Priya' created with {len(SAMPLES)} saves.")
-    print(f"Open: {base}/app/?t={access.token_for(uid)}")
+    n = int(sys.argv[sys.argv.index("--links") + 1]) if "--links" in sys.argv else 1
+    print(f"Demo member 'Priya' created with {len(SAMPLES)} saves. Each link works once, for 24 hours:")
+    for _ in range(n):
+        print(f"Open: {base}/app/?t={access.create_login_link(uid)}")
 
 
 if __name__ == "__main__":

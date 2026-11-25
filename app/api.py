@@ -3,21 +3,37 @@ from datetime import date
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from .access import Access
+from .access import Access, AccessError
 from .library import Invalid, Library, NotFound
+from .reminders import Reminders
 
 EDITABLE = {"progress", "note", "board_id", "plan_day", "remind_at", "category"}
 
 
-def build_router(access: Access, library: Library) -> APIRouter:
+def build_router(access: Access, library: Library, reminders: Reminders) -> APIRouter:
     r = APIRouter(prefix="/api/v1")
 
-    def member(authorization: str = Header("")) -> dict:
-        token = authorization.removeprefix("Bearer ").strip()
-        user = access.user_from_token(token) if token else None
+    def bearer(authorization: str = Header("")) -> str:
+        return authorization.removeprefix("Bearer ").strip()
+
+    def member(token: str = Depends(bearer)) -> dict:
+        user = access.user_from_session(token)
         if not user:
-            raise HTTPException(401, "Your sign-in link isn't valid. Send LIBRARY to @stash for a new one.")
+            raise HTTPException(401, "You're signed out. Send LIBRARY to @stash on Instagram for a sign-in link.")
         return user
+
+    @r.post("/session")
+    def start_session(body: dict = Body(...)):
+        """Swap a single-use sign-in link for a 30-day session."""
+        try:
+            return access.exchange_login_link(str(body.get("link", "")))
+        except AccessError as e:
+            raise HTTPException(401, str(e))
+
+    @r.delete("/session")
+    def end_session(token: str = Depends(bearer)):
+        access.revoke_session(token)
+        return {"ok": True}
 
     def run(fn, *a, **kw):
         try:
@@ -29,7 +45,39 @@ def build_router(access: Access, library: Library) -> APIRouter:
 
     @r.get("/me")
     def me(user: dict = Depends(member)):
-        return {"id": user["id"], "name": user["name"], "instagram_linked": bool(user["igsid"])}
+        return {"id": user["id"], "name": user["name"], "instagram_linked": bool(user["igsid"]), "email": user["email"]}
+
+    @r.patch("/me")
+    def update_me(body: dict = Body(...), user: dict = Depends(member)):
+        if set(body) - {"email"}:
+            raise HTTPException(400, "Only email can be changed here.")
+        try:
+            return {"email": reminders.set_email(user["id"], str(body.get("email", "")))}
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    # ---- reminders
+    @r.get("/reminders")
+    def reminder_settings(user: dict = Depends(member)):
+        return {"channels": reminders.channels(user["id"]), "upcoming": reminders.upcoming(user["id"])}
+
+    @r.post("/reminders/test")
+    def test_reminder(user: dict = Depends(member)):
+        res = reminders.deliver(user["id"], None, every_channel=True)
+        return {"sent": res.channel is not None, "channels": res.tried}
+
+    @r.post("/push/subscribe")
+    def push_subscribe(body: dict = Body(...), user: dict = Depends(member)):
+        try:
+            reminders.subscribe(user["id"], body.get("subscription") or {})
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {"ok": True}
+
+    @r.post("/push/unsubscribe")
+    def push_unsubscribe(body: dict = Body(...), user: dict = Depends(member)):
+        reminders.unsubscribe(user["id"], str(body.get("endpoint", "")))
+        return {"ok": True}
 
     @r.get("/home")
     def home(user: dict = Depends(member)):

@@ -103,6 +103,8 @@ class Access:
         assert status in ("active", "revoked")
         with self.db.tx() as c:
             c.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
+            if status == "revoked":
+                c.execute("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now(), user_id))
 
     def user_for_igsid(self, igsid: str) -> dict | None:
         with self.db.connect() as c:
@@ -148,21 +150,94 @@ class Access:
             c.execute("UPDATE link_codes SET used_at = ? WHERE code = ?", (now(), code))
             # Re-linking replaces the user's previous Instagram account.
             c.execute("DELETE FROM ig_accounts WHERE user_id = ?", (user["id"],))
-            c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at) VALUES (?,?,?)", (igsid, user["id"], now()))
+            c.execute("INSERT INTO ig_accounts(igsid, user_id, linked_at, last_message_at) VALUES (?,?,?,?)",
+                      (igsid, user["id"], now(), now()))
             return dict(user)
 
-    # ---------- signed links for the web pages ----------
-    def token_for(self, user_id: int) -> str:
-        sig = hmac.new(self.secret, f"user:{user_id}".encode(), hashlib.sha256).hexdigest()[:32]
-        return f"{user_id}.{sig}"
+    # ---------- signed links for the invite/welcome pages ----------
+    WELCOME_LINK_DAYS = 7
+
+    def _sign(self, payload: str) -> str:
+        return hmac.new(self.secret, payload.encode(), hashlib.sha256).hexdigest()[:32]
+
+    def token_for(self, user_id: int, days: int | None = None) -> str:
+        """Signed `user.expiry.signature` token for the welcome page. Expires after a week."""
+        exp = int((datetime.now(timezone.utc) + timedelta(days=days or self.WELCOME_LINK_DAYS)).timestamp())
+        return f"{user_id}.{exp}.{self._sign(f'user:{user_id}:{exp}')}"
 
     def user_from_token(self, token: str) -> dict | None:
         try:
-            uid_s, sig = token.split(".", 1)
-            uid = int(uid_s)
+            uid_s, exp_s, sig = token.split(".", 2)
+            uid, exp = int(uid_s), int(exp_s)
         except (ValueError, AttributeError):
             return None
-        if not hmac.compare_digest(self.token_for(uid), f"{uid}.{sig}"):
+        if not hmac.compare_digest(self._sign(f"user:{uid}:{exp}"), sig):
+            return None
+        if exp < datetime.now(timezone.utc).timestamp():
             return None
         user = self.get_user(uid)
         return user if user and user["status"] == "active" else None
+
+    # ---------- web app sign-in: single-use links → sessions ----------
+    LOGIN_LINK_HOURS = 24
+    SESSION_DAYS = 30
+
+    @staticmethod
+    def _hash(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def create_login_link(self, user_id: int) -> str:
+        """A one-time token for a sign-in link. Only its hash is stored."""
+        token = "l_" + secrets.token_urlsafe(24)
+        exp = (datetime.now(timezone.utc) + timedelta(hours=self.LOGIN_LINK_HOURS)).isoformat(timespec="seconds")
+        with self.db.tx() as c:
+            c.execute("INSERT INTO login_links(token_hash, user_id, created_at, expires_at) VALUES (?,?,?,?)",
+                      (self._hash(token), user_id, now(), exp))
+        return token
+
+    def exchange_login_link(self, token: str) -> dict:
+        """Use a sign-in link once and start a session. Returns {token, expires_at}."""
+        expired = AccessError("This sign-in link has expired or was already used. Send LIBRARY to @stash for a new one.")
+        if not token or not token.startswith("l_"):
+            raise expired
+        with self.db.tx() as c:
+            link = c.execute("SELECT * FROM login_links WHERE token_hash = ?", (self._hash(token),)).fetchone()
+            if not link or link["used_at"] or link["expires_at"] < now():
+                raise expired
+            user = c.execute("SELECT * FROM users WHERE id = ?", (link["user_id"],)).fetchone()
+            if not user or user["status"] != "active":
+                raise AccessError("This Stash account is turned off.")
+            c.execute("UPDATE login_links SET used_at = ? WHERE token_hash = ?", (now(), link["token_hash"]))
+            session = "s_" + secrets.token_urlsafe(32)
+            exp = (datetime.now(timezone.utc) + timedelta(days=self.SESSION_DAYS)).isoformat(timespec="seconds")
+            c.execute("INSERT INTO sessions(token_hash, user_id, created_at, expires_at, last_seen_at) VALUES (?,?,?,?,?)",
+                      (self._hash(session), user["id"], now(), exp, now()))
+        return {"token": session, "expires_at": exp}
+
+    def user_from_session(self, token: str) -> dict | None:
+        if not token or not token.startswith("s_"):
+            return None
+        h = self._hash(token)
+        with self.db.connect() as c:
+            row = c.execute(
+                "SELECT s.expires_at, s.revoked_at, s.last_seen_at, u.* , a.igsid FROM sessions s "
+                "JOIN users u ON u.id = s.user_id LEFT JOIN ig_accounts a ON a.user_id = u.id WHERE s.token_hash = ?", (h,)
+            ).fetchone()
+        if not row or row["revoked_at"] or row["expires_at"] < now() or row["status"] != "active":
+            return None
+        # Note activity at most every 10 minutes, to avoid a write on every request.
+        if not row["last_seen_at"] or row["last_seen_at"] < (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(timespec="seconds"):
+            with self.db.tx() as c:
+                c.execute("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", (now(), h))
+        user = dict(row)
+        for k in ("expires_at", "revoked_at", "last_seen_at"):
+            user.pop(k, None)
+        return user
+
+    def revoke_session(self, token: str) -> None:
+        with self.db.tx() as c:
+            c.execute("UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL", (now(), self._hash(token or "")))
+
+    def revoke_all_sessions(self, user_id: int) -> None:
+        with self.db.tx() as c:
+            c.execute("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now(), user_id))
