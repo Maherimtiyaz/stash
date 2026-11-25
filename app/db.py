@@ -63,12 +63,64 @@ CREATE TABLE IF NOT EXISTS outbox (
     last_error  TEXT,
     created_at  TEXT NOT NULL
 );
+-- Single-use sign-in links for the web app (only a hash of the token is stored).
+CREATE TABLE IF NOT EXISTS login_links (
+    token_hash  TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    used_at     TEXT
+);
+-- Web app sessions. Signing out sets revoked_at.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash   TEXT PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    last_seen_at TEXT,
+    revoked_at   TEXT
+);
+-- Browser/phone push subscriptions (Web Push). One member can have several devices.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint    TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    last_error  TEXT
+);
+-- User-made boards (collections). A save sits on at most one board.
+CREATE TABLE IF NOT EXISTS boards (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    name        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    UNIQUE (user_id, name)
+);
 CREATE TABLE IF NOT EXISTS waitlist (
     igsid       TEXT PRIMARY KEY,
     created_at  TEXT NOT NULL,
     invited     INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+# Columns added after the first release. Applied to existing databases on start-up.
+SAVE_COLUMNS = {
+    "creator": "TEXT NOT NULL DEFAULT ''",
+    "progress": "TEXT NOT NULL DEFAULT 'try'",     # try | done | skip (the person's own status)
+    "note": "TEXT NOT NULL DEFAULT ''",
+    "board_id": "INTEGER REFERENCES boards(id) ON DELETE SET NULL",
+    "plan_day": "TEXT",                            # ISO date the person planned it for
+    "remind_at": "TEXT",                           # ISO datetime (UTC)
+    "reviewed_at": "TEXT",                         # last time it was shown in Rediscover
+    "reminded_at": "TEXT",                         # when the reminder went out (NULL = still due)
+    "remind_channel": "TEXT",                      # dm | push | email | failed
+}
+# Columns added to other tables after the first release.
+EXTRA_COLUMNS = {
+    "ig_accounts": {"last_message_at": "TEXT"},     # Instagram allows bot DMs for 24 h after this
+}
 
 
 def now() -> str:
@@ -80,6 +132,12 @@ class Database:
         self.path = path
         with self.connect() as c:
             c.executescript(SCHEMA)
+            for table, cols in {"saves": SAVE_COLUMNS, **EXTRA_COLUMNS}.items():
+                have = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+                for col, ddl in cols.items():
+                    if col not in have:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            c.execute("UPDATE saves SET category = 'Tech' WHERE category = 'Coding'")  # renamed shelf
 
     @contextmanager
     def connect(self):

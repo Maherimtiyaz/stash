@@ -18,17 +18,22 @@ INVITE_ONLY = (
 
 
 class Bot:
-    def __init__(self, db: Database, access: Access, public_base_url: str, ig_username: str):
+    def __init__(self, db: Database, access: Access, public_base_url: str, ig_username: str, app_path: str = "/library"):
         self.db = db
         self.access = access
         self.base = public_base_url
         self.username = ig_username
+        self.app_path = app_path
+        self.link_note = " (link works once, for 24 hours)" if app_path == "/app" else ""
 
     def reply(self, c, igsid: str, text: str) -> None:
         c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)", (igsid, text, now()))
 
     def library_url(self, user_id: int) -> str:
-        return f"{self.base}/library?t={self.access.token_for(user_id)}"
+        """Web app: a single-use sign-in link (24 h). Fallback page: a signed 7-day link."""
+        if self.app_path == "/app":
+            return f"{self.base}/app/?t={self.access.create_login_link(user_id)}"
+        return f"{self.base}{self.app_path}?t={self.access.token_for(user_id)}"
 
     def handle(self, msg: Incoming) -> str:
         """Returns a short outcome label (used in logs and tests)."""
@@ -43,6 +48,9 @@ class Bot:
         user = self.access.user_for_igsid(msg.sender)
         if user is None:
             return self._handle_stranger(msg)
+        # Instagram lets the bot message this person for 24 hours after this (used for reminders).
+        with self.db.tx() as c:
+            c.execute("UPDATE ig_accounts SET last_message_at = ? WHERE igsid = ?", (now(), msg.sender))
         if user["status"] != "active":
             with self.db.tx() as c:
                 self.reply(c, msg.sender, "Your Stash access is turned off. Reach out to the person who invited you.")
@@ -66,22 +74,24 @@ class Bot:
                 # Reels from strangers are not stored.
                 self.reply(c, msg.sender, INVITE_ONLY)
                 return "invite-only"
+        url = self.library_url(user["id"])  # writes to the DB, so not inside the reply transaction
         with self.db.tx() as c:
             self.reply(
                 c, msg.sender,
                 f"You're in, {user['name']}! Your Instagram is now linked to Stash.\n"
-                f"From now on, send me any reel and I'll file it.\nYour library: {self.library_url(user['id'])}",
+                f"From now on, send me any reel and I'll file it.\nYour library{self.link_note}: {url}",
             )
         return "linked"
 
     # ---------- linked member ----------
     def _handle_member(self, user: dict, msg: Incoming) -> str:
+        if not msg.shares and msg.text.strip().upper() in ("LIBRARY", "LINK", "MY STASH"):
+            url = self.library_url(user["id"])
+            with self.db.tx() as c:
+                self.reply(c, msg.sender, f"Your library{self.link_note}: {url}")
+            return "library"
         with self.db.tx() as c:
             if not msg.shares:
-                cmd = msg.text.strip().upper()
-                if cmd in ("LIBRARY", "LINK", "MY STASH"):
-                    self.reply(c, msg.sender, f"Your library: {self.library_url(user['id'])}")
-                    return "library"
                 self.reply(c, msg.sender, HELP.format(username=self.username))
                 return "help"
             queued, dupes = 0, []

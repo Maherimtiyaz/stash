@@ -8,35 +8,22 @@ import logging
 import threading
 import time
 
+from .categories import UNSORTED, guess
 from .db import Database, now
 from .instagram import Messenger
 
 log = logging.getLogger("stash.worker")
 
-RULES: dict[str, tuple[str, ...]] = {
-    "Recipes": ("recipe", "cook", "dinner", "lunch", "breakfast", "paneer", "pasta", "protein", "bake", "chai"),
-    "Travel": ("travel", "trip", "goa", "beach", "hotel", "cafe", "itinerary", "flight", "places to visit"),
-    "Fitness": ("workout", "gym", "abs", "core", "exercise", "yoga", "plank", "squat", "cardio"),
-    "Coding": ("code", "coding", "python", "sql", "javascript", "system design", "interview", "developer", "api"),
-    "Money": ("money", "budget", "invest", "salary", "finance", "saving", "stocks", "tax"),
-    "Fashion": ("outfit", "fashion", "style", "wear", "linen", "dress", "sneakers"),
-    "Health": ("sleep", "health", "skin", "skincare", "habit", "mental", "doctor"),
-    "Books": ("book", "read", "reading", "novel", "author"),
-}
-
-
 def understand(caption: str, url: str) -> tuple[str, list[str]]:
-    text = f"{caption} {url}".lower()
     tags = [w.lstrip("#") for w in caption.split() if w.startswith("#")][:8]
-    scores = {cat: sum(k in text for k in kws) for cat, kws in RULES.items()}
-    best = max(scores, key=scores.get)
-    return (best if scores[best] > 0 else "Unsorted"), tags
+    return guess(caption, url), tags
 
 
 class Worker:
-    def __init__(self, db: Database, messenger: Messenger, max_send_attempts: int = 5):
+    def __init__(self, db: Database, messenger: Messenger, max_send_attempts: int = 5, reminders=None):
         self.db = db
         self.messenger = messenger
+        self.reminders = reminders
         self.max_attempts = max_send_attempts
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -55,7 +42,7 @@ class Worker:
                         "UPDATE saves SET category = ?, tags = ?, status = 'done', processed_at = ? WHERE id = ?",
                         (category, ",".join(tags), now(), r["id"]),
                     )
-                    text = f"Saved to {category} ✓" if category != "Unsorted" else "Saved ✓ (couldn't pick a category yet)"
+                    text = f"Saved to {category} ✓" if category != UNSORTED else "Saved ✓ (couldn't pick a category yet)"
                     c.execute("INSERT INTO outbox(igsid, text, created_at) VALUES (?,?,?)", (r["igsid"], text, now()))
             except Exception:
                 log.exception("processing save %s failed", r["id"])
@@ -87,7 +74,9 @@ class Worker:
 
     def tick(self) -> None:
         self.process_saves()
-        self.flush_outbox()
+        if self.reminders:
+            self.reminders.process_due()
+        self.flush_outbox()  # after reminders, so reminder DMs go out in the same tick
 
     def start(self, interval: float = 1.0) -> None:
         def loop():

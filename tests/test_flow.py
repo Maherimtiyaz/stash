@@ -132,3 +132,23 @@ def test_parser_tolerates_unknown_attachments():
     p = build(ALICE, "text", "x")
     p["entry"][0]["messaging"][0]["message"]["attachments"] = [{"type": "story_mention", "payload": {}}]
     assert parse_webhook(p)[0].shares == []
+
+
+def test_welcome_links_expire_and_cannot_be_forged(env):
+    client, app, _ = env
+    _, token = onboard(client, app)
+    access = app.state.access
+    uid, exp, sig = token.split(".")
+    assert access.user_from_token(token)["name"] == "Alice"
+    assert access.user_from_token(f"{uid}.{int(exp) + 999}.{sig}") is None   # changed expiry → bad signature
+    assert access.user_from_token(access.token_for(int(uid), days=-1)) is None  # expired
+    assert access.user_from_token(f"{uid}.{sig}") is None                    # old two-part format
+    assert client.get(f"/welcome?t={access.token_for(int(uid), days=-1)}").status_code == 404
+
+
+def test_library_reply_contains_a_link(env):
+    client, app, m = env
+    onboard(client, app)
+    drain(app, m)
+    assert send(client, build(ALICE, "text", "library")).json()["outcomes"] == ["library"]
+    assert "/library?t=" in drain(app, m)[0]
