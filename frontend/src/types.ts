@@ -35,6 +35,7 @@ export interface Me {
   name: string;
   instagram_linked: boolean;
   email: string;
+  timezone: string;
 }
 
 export interface ReminderSettings {

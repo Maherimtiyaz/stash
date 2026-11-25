@@ -429,3 +429,6 @@ svg.i { stroke: currentColor; fill: none; stroke-width: 2.3; stroke-linecap: rou
 .import-result h3 b { color: var(--tangerine); }
 .facts-list { margin: 0; padding-left: 1.1em; color: var(--ink-2); display: grid; gap: 3px; }
 .row-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.foot-tip { color: var(--ink-2); font-size: .88rem; text-align: center; max-width: 70ch; margin: 0 auto; }
+.dm-tip code { margin: 0 2px; white-space: nowrap; }

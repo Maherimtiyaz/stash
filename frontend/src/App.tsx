@@ -30,7 +30,13 @@ export function App() {
     setState("loading");
     signInOnLoad()
       .then((ok) => (ok ? api.me() : Promise.reject(new ApiError(401, ""))))
-      .then((m) => (setMe(m), setState("ready")))
+      .then((m) => {
+        setMe(m);
+        setState("ready");
+        // So "remind sat" in a DM means Saturday on this person's clock.
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (tz && tz !== m.timezone) api.setTimezone(tz).catch(() => undefined);
+      })
       .catch((e: Error) => {
         if (e instanceof ApiError && e.status === 401) {
           setToken(null);
