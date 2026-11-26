@@ -129,7 +129,14 @@ export function SearchView() {
         <form className="search" role="search" onSubmit={(e) => {
           e.preventDefault();
           if (isCommand) return shown[cmdIndex]?.run();
-          if (hits && matched[0]) openSave(matched[0].id);
+          const typed = q.trim();
+          if (!typed) return;
+          if (typed === debounced && hits) {
+            if (matched[0]) openSave(matched[0].id);
+            return;
+          }
+          // Enter pressed before the search caught up with the typing: search now, then open the first match.
+          api.search(typed).then((r) => r.results[0] && openSave(r.results[0].id)).catch((err: Error) => setError(err.message));
         }}>
           <Icon name="search" size={22} />
           <input ref={input} id="q" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off"
