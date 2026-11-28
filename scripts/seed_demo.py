@@ -2,9 +2,11 @@
 
     DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py            # one link
     DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py --links 3  # several (each works once)
+    DB_PATH=demo.db .venv/bin/python scripts/seed_demo.py --json     # machine-readable, used by frontend/e2e
 
 Only for local development. The saves are made-up examples.
 """
+import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -60,9 +62,13 @@ def main():
             )
     base = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
     n = int(sys.argv[sys.argv.index("--links") + 1]) if "--links" in sys.argv else 1
+    links = [f"{base}/app/?t={access.create_login_link(uid)}" for _ in range(n)]
+    if "--json" in sys.argv:   # for the browser tests: each test makes its own member
+        print(json.dumps({"user_id": uid, "igsid": f"demo-{uid}", "links": links, "saves": len(SAMPLES)}))
+        return
     print(f"Demo member 'Priya' created with {len(SAMPLES)} saves. Each link works once, for 24 hours:")
-    for _ in range(n):
-        print(f"Open: {base}/app/?t={access.create_login_link(uid)}")
+    for link in links:
+        print(f"Open: {link}")
 
 
 if __name__ == "__main__":

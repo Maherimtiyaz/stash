@@ -1,13 +1,23 @@
 """JSON API for the web app. Every route needs the member's token: `Authorization: Bearer <token>`."""
 from datetime import date
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 
 from .access import Access, AccessError
+from .importer import MAX_UPLOAD, ImportProblem, apply_import, list_imports, parse_export, undo_import
 from .library import Invalid, Library, NotFound
 from .reminders import Reminders
 
 EDITABLE = {"progress", "note", "board_id", "plan_day", "remind_at", "category"}
+
+
+def valid_tz(name: str) -> bool:
+    try:
+        ZoneInfo(name)
+        return True
+    except Exception:  # noqa: BLE001 - unknown or malformed zone name
+        return False
 
 
 def build_router(access: Access, library: Library, reminders: Reminders) -> APIRouter:
@@ -16,10 +26,17 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
     def bearer(authorization: str = Header("")) -> str:
         return authorization.removeprefix("Bearer ").strip()
 
-    def member(token: str = Depends(bearer)) -> dict:
+    def member(token: str = Depends(bearer), x_timezone: str = Header("")) -> dict:
         user = access.user_from_session(token)
         if not user:
             raise HTTPException(401, "You're signed out. Send LIBRARY to @stash on Instagram for a sign-in link.")
+        # The app sends the device's time zone with every request: use it at once (first visit, travel)
+        # and remember it for DMs and reminders. Unknown names are ignored.
+        tz = x_timezone.strip()[:64]
+        if tz and tz != user.get("timezone") and valid_tz(tz):
+            with access.db.tx() as c:
+                c.execute("UPDATE users SET timezone = ? WHERE id = ?", (tz, user["id"]))
+            user["timezone"] = tz
         return user
 
     @r.post("/session")
@@ -45,16 +62,50 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.get("/me")
     def me(user: dict = Depends(member)):
-        return {"id": user["id"], "name": user["name"], "instagram_linked": bool(user["igsid"]), "email": user["email"]}
+        return {"id": user["id"], "name": user["name"], "instagram_linked": bool(user["igsid"]), "email": user["email"],
+                "timezone": user.get("timezone") or ""}
 
     @r.patch("/me")
     def update_me(body: dict = Body(...), user: dict = Depends(member)):
-        if set(body) - {"email"}:
-            raise HTTPException(400, "Only email can be changed here.")
+        if not body or set(body) - {"email", "timezone"}:
+            raise HTTPException(400, "Only email and timezone can be changed here.")
+        out = {}
+        if "timezone" in body:
+            name = str(body["timezone"] or "")[:64]
+            try:
+                ZoneInfo(name)
+            except Exception:  # noqa: BLE001 - unknown or malformed zone name
+                raise HTTPException(400, "That isn't a time zone name like Asia/Kolkata.")
+            with access.db.tx() as c:
+                c.execute("UPDATE users SET timezone = ? WHERE id = ?", (name, user["id"]))
+            out["timezone"] = name
+        if "email" in body:
+            try:
+                out["email"] = reminders.set_email(user["id"], str(body.get("email", "")))
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        return out
+
+    # ---- importing saves from Instagram's "Download your information" export
+    @r.post("/import")
+    async def import_export(file: UploadFile = File(...), user: dict = Depends(member)):
+        data = await file.read(MAX_UPLOAD + 1)
         try:
-            return {"email": reminders.set_email(user["id"], str(body.get("email", "")))}
-        except ValueError as e:
+            parsed = parse_export(data, file.filename or "")
+            return apply_import(access.db, user["id"], parsed, file.filename or "export")
+        except ImportProblem as e:
             raise HTTPException(400, str(e))
+
+    @r.get("/imports")
+    def imports(user: dict = Depends(member)):
+        return list_imports(access.db, user["id"])
+
+    @r.delete("/imports/{import_id}")
+    def undo(import_id: int, user: dict = Depends(member)):
+        try:
+            return undo_import(access.db, user["id"], import_id)
+        except ImportProblem as e:
+            raise HTTPException(404 if "exist" in str(e) else 400, str(e))
 
     # ---- reminders
     @r.get("/reminders")
@@ -81,7 +132,7 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.get("/home")
     def home(user: dict = Depends(member)):
-        return library.home(user["id"])
+        return library.home(user["id"], user.get("timezone"))
 
     @r.get("/saves")
     def saves(q: str = Query("", max_length=200), user: dict = Depends(member)):
@@ -130,7 +181,7 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
 
     @r.post("/saves/{save_id}/review")
     def review(save_id: int, body: dict = Body(...), user: dict = Depends(member)):
-        return run(library.review, user["id"], save_id, str(body.get("action", "")), body.get("remind_at"))
+        return run(library.review, user["id"], save_id, str(body.get("action", "")), body.get("remind_at"), user.get("timezone"))
 
     @r.get("/plan")
     def plan(start: str | None = Query(None), user: dict = Depends(member)):
@@ -138,6 +189,6 @@ def build_router(access: Access, library: Library, reminders: Reminders) -> APIR
             d = date.fromisoformat(start) if start else None
         except ValueError:
             raise HTTPException(400, "start must be a date like 2026-11-23")
-        return library.plan(user["id"], d)
+        return library.plan(user["id"], d, user.get("timezone"))
 
     return r

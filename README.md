@@ -17,7 +17,9 @@ Invite-only app for organising saved Instagram reels. People send reels to **@st
 | `frontend/` | React + TypeScript web app (Vite): `src/views/` one file per tab, `src/components/Viewer.tsx` the save view, `src/components/ui.tsx` the reel card |
 | `scripts/simulate.py` | Send signed fake webhooks to a running server |
 | `scripts/seed_demo.py` | Fill a local database with a demo member and sample saves |
-| `tests/` | DM flow, web API, database migration and shelf-sorting tests |
+| `tests/` | Backend tests (pytest) |
+| `frontend/e2e/` | Browser tests (Playwright) |
+| `.github/workflows/tests.yml` | Runs all tests on GitHub |
 
 ## Run locally (no Meta account needed)
 
@@ -48,6 +50,24 @@ Tests:
 ```bash
 .venv/bin/python -m pytest -q
 ```
+
+Browser tests (start the real server on a fresh database and use the built app like a member would):
+
+```bash
+cd frontend && npm run build && npx playwright test
+```
+
+## Automatic checks on GitHub
+
+`.github/workflows/tests.yml` runs on every pull request, every push to `main`, and on demand from the Actions tab:
+
+| Job | What it checks |
+|---|---|
+| Backend tests | `pytest`: bot, API, security, reminders, import, DM commands, time zones |
+| Web app | TypeScript typecheck and production build |
+| Browser tests | The 23 Playwright tests in `frontend/e2e`, desktop and phone, against the real server. A failure uploads the report (screenshots, traces) as an artifact |
+
+Each browser test creates its own demo member, so tests run in parallel without affecting each other. They act as Instagram by sending signed webhooks (`scripts/simulate.py`) and read the bot's replies from the database. The Instagram export used by the import test is made by `frontend/e2e/fixtures/make_export.py`.
 
 ## The web app
 
@@ -103,8 +123,11 @@ All routes need `Authorization: Bearer <token>`.
 | GET | `/api/v1/rediscover` | Rediscover deck |
 | POST | `/api/v1/saves/{id}/review` | `{"action": "keep" | "let_go" | "later"}` |
 | GET | `/api/v1/plan?start=YYYY-MM-DD` | Week plan and someday pile |
-| PATCH | `/api/v1/me` | Save the email for reminders |
+| PATCH | `/api/v1/me` | Save the email for reminders and the time zone |
 | GET | `/api/v1/reminders` | Channel status and upcoming reminders |
+| POST | `/api/v1/import` | Upload Instagram's export (multipart `file`: ZIP, JSON or HTML) |
+| GET | `/api/v1/imports` | Earlier imports |
+| DELETE | `/api/v1/imports/{id}` | Undo an import |
 | POST | `/api/v1/reminders/test` | Send a test through every channel |
 | POST | `/api/v1/push/subscribe`, `/api/v1/push/unsubscribe` | Turn notifications on or off for a device |
 
@@ -116,6 +139,41 @@ All routes need `Authorization: Bearer <token>`.
 4. In the app's Webhooks settings: callback `https://<your-domain>/webhooks/instagram`, verify token = `IG_VERIFY_TOKEN`, subscribe to **messages**.
 5. While the Meta app is in **development mode**, only Instagram accounts added as testers in the app's roles can trigger webhooks. That is enough for a private beta of a few friends. For more people, submit App Review for `instagram_business_manage_messages` (Advanced Access).
 6. **First real test:** share a reel to @stash and look at the server log. Confirm the `ig_reel` attachment fields (`reel_video_id`, `title`, `url`) match `app/instagram.py`, and adjust the parser if Meta's payload differs.
+
+## Commands in Instagram DMs
+
+Type these to @stash in the same message as a reel, or right after it (Instagram often sends the reel and the text as two messages; follow-ups apply to the save from the last 15 minutes):
+
+| Type | Does |
+|---|---|
+| `#goa-trip` | Puts it on the pile "Goa trip" (`#goatrip` and "Goa trip" match too), or makes the pile |
+| `shelf gym`, `shelf:tech`, `in recipes` | Picks the shelf; the automatic guess won't override it |
+| `remind sat 7pm` | Reminder. Also: `tonight`, `tomorrow`, `weekend`, `next week`, `in 3 days`, `in 2 hours`, `25 dec`, `25/12`, `at 7` |
+| `plan tue` | Plans it for a day (same day words as above) |
+| `done` / `skip` | Marks it tried / not for me |
+| `note: book 2 days ahead` | Keeps a note. Other text sent with a reel is kept as its note too |
+| `find pasta` | On its own: replies with the 3 best matches and links |
+| `help` | Lists all of this |
+
+Combine freely: `#goa-trip remind sat 7pm note: 3rd café has the view`. The reply says what happened: `Saved to Travel ✓ · pile “Goa trip” · reminder Sat 28 Nov, 19:00 · note saved`. Re-sending a saved reel with commands updates it. Times are read in the member's time zone, which the web app sends with every request (`X-Timezone`) and the server remembers for DMs and reminders (`DEFAULT_TIMEZONE` until then). An unreadable time gets a reply with examples instead of a guess. Parsing is plain keyword rules in `app/commands.py`.
+
+## Importing old saves
+
+Instagram doesn't let apps read the Saved list, but it lets people download it. **Import from Instagram** (on Home, or `/import`) walks members through it:
+
+1. Instagram → profile → ☰ → **Accounts Center** → **Your information and permissions** → **Download your information**.
+2. **Download or transfer information** → the account → **Some of your information** → tick only **Saved**.
+3. **Download to device**, date range **All time**, format **JSON** → **Create files**. Instagram emails when it's ready.
+4. Drop the ZIP into Stash.
+
+What happens (`app/importer.py`):
+- Only `saved_posts` and `saved_collections` files are read, in memory. Media and everything else in the ZIP is ignored and never stored.
+- Every saved post and reel is added with its creator and the date it was saved. Instagram **collections become piles** (an existing pile with the same name is reused).
+- The export has no captions, so shelves are guessed from the collection name and creator (a "Recipes" collection, `@goadiaries`); the rest go to **Unsorted**, where members can move them.
+- Duplicates are skipped, including links already sent to @stash. Importing the same file twice adds nothing.
+- Imports send no DMs, and each one can be **undone** (its saves and any piles it created).
+- The parser follows post links rather than one exact layout, so the current JSON format, an older one and the HTML export work. If Instagram changes the format again, `tests/test_import.py` shows the shapes it expects.
+- Limits: 50 MB per upload (refused before reading if larger), 20 MB per file inside the ZIP, 20,000 saves per import, 6 uploads a minute.
 
 ## Reminders
 
@@ -137,6 +195,10 @@ Without credentials both email and notifications run in **dry-run** mode (logged
 | `MAIL_FROM` | Sender, e.g. `Stash <reminders@your-domain>` |
 
 Notifications only work over **https**, so they start working once Stash is online.
+
+## Time zones
+
+The server runs on UTC, but everything calendar-based follows the member's own clock: Plan's "today" and week, **On this day**, Capsule's **Later** (Saturday 10:00 their time), and times in DM commands and replies. The app sends the device's time zone with each request, so it's right on the first visit and after travel. Reminders are stored and sent as exact UTC moments, so they fire at the right time wherever the member is.
 
 ## Security
 
@@ -176,4 +238,3 @@ Also set `IG_APP_SECRET` from your Meta app, `PUBLIC_BASE_URL=https://your-domai
 - Web Push subscriptions were tested with real encryption against a local endpoint, not yet on a real phone. Do that once the server is online.
 - Search scans a member's saves in Python. Fine for thousands of saves; move to SQLite FTS5 or Postgres full-text search beyond that.
 - Saves have no thumbnails yet; cards use a colour per category until media fetching exists.
-- Plan "today" uses the server's UTC date, so it can be a day off near midnight in other time zones.

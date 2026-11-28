@@ -14,6 +14,8 @@ interface Ctx {
   openId: number | null;
   remindersOpen: boolean;
   setRemindersOpen: (open: boolean) => void;
+  importOpen: boolean;
+  setImportOpen: (open: boolean) => void;
   toast: (msg: string) => void;
   toastMsg: string;
 }
@@ -25,6 +27,7 @@ export function AppProvider({ me, children }: { me: Me; children: ReactNode }) {
   const [version, setVersion] = useState(0);
   const [openId, setOpenId] = useState<number | null>(null);
   const [remindersOpen, setRemindersOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const timer = useRef<number>();
 
@@ -50,6 +53,8 @@ export function AppProvider({ me, children }: { me: Me; children: ReactNode }) {
     openId,
     remindersOpen,
     setRemindersOpen,
+    importOpen,
+    setImportOpen,
     toast,
     toastMsg,
   };

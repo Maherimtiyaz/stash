@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, setToken, signInOnLoad, signInWithLink, signOut } from "./api";
+import { ImportPanel } from "./components/ImportPanel";
 import { RemindersPanel } from "./components/RemindersPanel";
 import { Viewer } from "./components/Viewer";
 import { Icon, Spinner, type IconName } from "./components/ui";
@@ -29,7 +30,10 @@ export function App() {
     setState("loading");
     signInOnLoad()
       .then((ok) => (ok ? api.me() : Promise.reject(new ApiError(401, ""))))
-      .then((m) => (setMe(m), setState("ready")))
+      .then((m) => {
+        setMe(m);
+        setState("ready");
+      })
       .catch((e: Error) => {
         if (e instanceof ApiError && e.status === 401) {
           setToken(null);
@@ -100,6 +104,7 @@ function Shell() {
       </nav>
       <Viewer />
       <RemindersPanel />
+      <ImportPanel />
       {toastMsg && <div className="toast" role="status" key={toastMsg}>{toastMsg}</div>}
     </div>
   );

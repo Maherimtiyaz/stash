@@ -405,3 +405,30 @@ svg.i { stroke: currentColor; fill: none; stroke-width: 2.3; stroke-linecap: rou
 .link-strong { border: 0; background: none; padding: 0; font-weight: 800; text-align: left; text-decoration: underline; text-underline-offset: 3px; color: var(--ink); }
 .link-strong.small { font-size: .84rem; justify-self: start; }
 .viewer.reminders .page-head { padding-right: 52px; }
+
+/* ---------- import ---------- */
+.import-btn { border: 2px dashed var(--line); background: var(--card); border-radius: 999px; padding: 5px 12px; font-weight: 800; font-size: .84rem; white-space: nowrap; }
+.import-btn:hover { border-style: solid; }
+.viewer.import { grid-template-columns: minmax(0, 1fr); max-width: 720px; gap: 18px; }
+.viewer.import .page-head { padding-right: 52px; }
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 8px; color: var(--ink-2); font-size: .94rem; }
+.steps li::marker { font: 900 .9rem var(--display); color: var(--tangerine); }
+.steps b { color: var(--ink); }
+.dropzone { position: relative; display: grid; justify-items: center; gap: 6px; text-align: center; padding: 30px 18px; border: 3px dashed var(--line); border-radius: 22px;
+  background: var(--card); cursor: pointer; transition: transform .15s, background .15s, box-shadow .15s; }
+.dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.dropzone:hover, .dropzone.over { background: var(--paper-2); transform: translate(-2px, -2px); box-shadow: var(--shadow); border-style: solid; }
+.dropzone:focus-within { outline: 3px solid var(--cobalt); outline-offset: 3px; }
+.dropzone.busy { cursor: progress; }
+.dropzone b { font: 900 1.15rem var(--display); }
+.dropzone span { color: var(--ink-2); font-size: .86rem; }
+.drop-icon { font-size: 2rem !important; line-height: 1; color: var(--tangerine) !important; }
+.spinner.small { width: 26px; height: 26px; margin: 0 0 4px; border-width: 3px; }
+.import-result { background: var(--card); border: 2.5px solid var(--line); border-radius: 20px; padding: 16px; display: grid; gap: 10px; box-shadow: var(--shadow); }
+.import-result h3 { font: 900 1.4rem var(--display); }
+.import-result h3 b { color: var(--tangerine); }
+.facts-list { margin: 0; padding-left: 1.1em; color: var(--ink-2); display: grid; gap: 3px; }
+.row-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.foot-tip { color: var(--ink-2); font-size: .88rem; text-align: center; max-width: 70ch; margin: 0 auto; }
+.dm-tip code { margin: 0 2px; white-space: nowrap; }

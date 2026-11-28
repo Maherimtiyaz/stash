@@ -8,6 +8,7 @@ import shlex
 from datetime import date, datetime, timedelta, timezone
 
 from .categories import ALL as CATEGORY_NAMES, UNSORTED, normalise as normalise_category
+from .commands import parse_when, tz_for
 from .db import Database, now
 
 PROGRESS = ("try", "done", "skip")
@@ -61,8 +62,14 @@ def parse_query(q: str) -> tuple[list[str], list[tuple[str, str]]]:
 
 
 class Library:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, default_tz: str = "UTC"):
         self.db = db
+        self.default_tz = default_tz
+        self.clock = lambda: datetime.now(timezone.utc)   # replaced in tests to check midnight edge cases
+
+    def _local_now(self, tz_name: str | None) -> datetime:
+        """'Now' on the member's own clock: Plan's today, On this day and Saturday all use it."""
+        return self.clock().astimezone(tz_for(tz_name, self.default_tz))
 
     SELECT = ("SELECT s.*, b.name AS board_name FROM saves s "
               "LEFT JOIN boards b ON b.id = s.board_id WHERE s.user_id = ?")
@@ -208,11 +215,19 @@ class Library:
         return [{"name": c, "count": counts.get(c, (0, 0))[0], "todo": counts.get(c, (0, 0))[1]} for c in CATEGORY_NAMES]
 
     # ------------------------------------------------------------ home, rediscover, plan
-    def home(self, user_id: int, today: date | None = None) -> dict:
-        today = today or datetime.now(timezone.utc).date()
+    def home(self, user_id: int, tz_name: str | None = None) -> dict:
+        local = self._local_now(tz_name)
+        today, tz = local.date(), local.tzinfo
         saves = self._all(user_id, "ORDER BY s.created_at DESC, s.id DESC")
-        md = today.strftime("-%m-%d")
-        on_this_day = [s for s in saves if s["saved_at"][4:10] == md and s["saved_at"][:4] < str(today.year)]
+
+        def saved_on(s) -> date | None:   # the day it was saved, on the member's calendar
+            try:
+                d = datetime.fromisoformat(s["saved_at"])
+            except ValueError:
+                return None
+            return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).astimezone(tz).date()
+
+        on_this_day = [s for s in saves if (d := saved_on(s)) and (d.month, d.day) == (today.month, today.day) and d.year < today.year]
         return {
             "recent": saves[:8],
             "on_this_day": on_this_day[:3],
@@ -224,7 +239,7 @@ class Library:
         }
 
     def rediscover(self, user_id: int, limit: int = 20) -> list[dict]:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=REVIEW_COOLDOWN_DAYS)).isoformat(timespec="seconds")
+        cutoff = (self.clock() - timedelta(days=REVIEW_COOLDOWN_DAYS)).isoformat(timespec="seconds")
         return self._all(
             user_id,
             "AND s.progress = 'try' AND s.plan_day IS NULL AND s.status = 'done' "
@@ -232,21 +247,22 @@ class Library:
             (cutoff, limit),
         )
 
-    def review(self, user_id: int, save_id: int, action: str, remind_at: str | None = None) -> dict:
+    def review(self, user_id: int, save_id: int, action: str, remind_at: str | None = None, tz_name: str | None = None) -> dict:
         if action not in ("keep", "let_go", "later"):
             raise Invalid("action must be keep, let_go or later")
         changes: dict = {}
         if action == "let_go":
             changes["progress"] = "skip"
         elif action == "later":
-            changes["remind_at"] = remind_at or next_saturday_morning()
+            # "Later" = Saturday 10:00 on the member's clock (today if it's Saturday before 10).
+            changes["remind_at"] = remind_at or parse_when("sat", self._local_now(tz_name)).isoformat()
         save = self.update(user_id, save_id, changes)
         with self.db.tx() as c:
             c.execute("UPDATE saves SET reviewed_at = ? WHERE id = ? AND user_id = ?", (now(), save_id, user_id))
         return save
 
-    def plan(self, user_id: int, start: date | None = None) -> dict:
-        today = datetime.now(timezone.utc).date()
+    def plan(self, user_id: int, start: date | None = None, tz_name: str | None = None) -> dict:
+        today = self._local_now(tz_name).date()
         start = start or (today - timedelta(days=today.weekday()))
         days = [(start + timedelta(days=i)).isoformat() for i in range(7)]
         planned = self._all(user_id, "AND s.plan_day BETWEEN ? AND ? ORDER BY s.plan_day, s.id", (days[0], days[-1]))
@@ -258,8 +274,3 @@ class Library:
             "pile": pile,
         }
 
-
-def next_saturday_morning() -> str:
-    n = datetime.now(timezone.utc)
-    days = (5 - n.weekday()) % 7 or 7
-    return (n + timedelta(days=days)).replace(hour=10, minute=0, second=0, microsecond=0).isoformat(timespec="minutes")
