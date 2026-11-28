@@ -17,7 +17,9 @@ Invite-only app for organising saved Instagram reels. People send reels to **@st
 | `frontend/` | React + TypeScript web app (Vite): `src/views/` one file per tab, `src/components/Viewer.tsx` the save view, `src/components/ui.tsx` the reel card |
 | `scripts/simulate.py` | Send signed fake webhooks to a running server |
 | `scripts/seed_demo.py` | Fill a local database with a demo member and sample saves |
-| `tests/` | DM flow, web API, database migration and shelf-sorting tests |
+| `tests/` | Backend tests (pytest) |
+| `frontend/e2e/` | Browser tests (Playwright) |
+| `.github/workflows/tests.yml` | Runs all tests on GitHub |
 
 ## Run locally (no Meta account needed)
 
@@ -48,6 +50,24 @@ Tests:
 ```bash
 .venv/bin/python -m pytest -q
 ```
+
+Browser tests (start the real server on a fresh database and use the built app like a member would):
+
+```bash
+cd frontend && npm run build && npx playwright test
+```
+
+## Automatic checks on GitHub
+
+`.github/workflows/tests.yml` runs on every pull request, every push to `main`, and on demand from the Actions tab:
+
+| Job | What it checks |
+|---|---|
+| Backend tests | `pytest`: bot, API, security, reminders, import, DM commands, time zones |
+| Web app | TypeScript typecheck and production build |
+| Browser tests | The 23 Playwright tests in `frontend/e2e`, desktop and phone, against the real server. A failure uploads the report (screenshots, traces) as an artifact |
+
+Each browser test creates its own demo member, so tests run in parallel without affecting each other. They act as Instagram by sending signed webhooks (`scripts/simulate.py`) and read the bot's replies from the database. The Instagram export used by the import test is made by `frontend/e2e/fixtures/make_export.py`.
 
 ## The web app
 
